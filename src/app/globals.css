@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  --maestro-primary: #1A2F2A;
+  --maestro-primary-light: #243D36;
+  --maestro-accent: #D4940A;
+  --maestro-accent-light: #E5A80A;
+  --maestro-accent-bg: #FDF6E3;
+  --maestro-cream: #FAF8F5;
+  --maestro-surface: #F5F2EE;
+  --maestro-border: #E2DDD5;
+  --maestro-muted: #7A8580;
+  --maestro-success: #22C55E;
+}
+
+body {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: var(--maestro-cream);
+  color: var(--maestro-primary);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+::placeholder {
+  color: var(--maestro-muted);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--maestro-border);
+  border-radius: 3px;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 2s infinite;
+}
