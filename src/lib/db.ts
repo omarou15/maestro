@@ -25,3 +25,50 @@ export async function initSchema() {
     ON conversations(user_id, updated_at DESC)
   `
 }
+
+export async function initKnowledgeSchema() {
+  const sql = getDb()
+  await sql`
+    CREATE TABLE IF NOT EXISTS knowledge_items (
+      id SERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'idea',
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+      source TEXT NOT NULL DEFAULT 'Manuel',
+      importance TEXT NOT NULL DEFAULT 'moyenne',
+      linked_to JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_knowledge_user_id
+    ON knowledge_items(user_id, updated_at DESC)
+  `
+}
+
+export async function initVaultSchema() {
+  const sql = getDb()
+  await sql`
+    CREATE TABLE IF NOT EXISTS vault_items (
+      id SERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'services',
+      name TEXT NOT NULL,
+      icon TEXT NOT NULL DEFAULT '🔑',
+      type TEXT NOT NULL DEFAULT 'Clé API',
+      encrypted_value TEXT NOT NULL DEFAULT '',
+      masked_value TEXT NOT NULL DEFAULT '••••••••',
+      status TEXT NOT NULL DEFAULT 'active',
+      note TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_vault_user_id
+    ON vault_items(user_id, created_at DESC)
+  `
+}
