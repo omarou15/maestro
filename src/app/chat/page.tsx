@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { UserButton } from "@clerk/nextjs"
+import { UserButton, useAuth } from "@clerk/nextjs"
 import MaestroLogo from "@/components/MaestroLogo"
 import NavBar from "@/components/NavBar"
 import {
@@ -60,6 +60,7 @@ function ArtifactRenderer({ code, title }: { code: string; title: string }) {
 }
 
 export default function ChatPage() {
+  const { isLoaded: authLoaded, isSignedIn } = useAuth()
   const [input, setInput] = useState("")
   const [messages, setMessages] = useState<StoredMessage[]>([])
   const [chatId, setChatId] = useState<string | null>(null)
@@ -80,7 +81,9 @@ export default function ChatPage() {
   useEffect(() => { const u = () => setClock(new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })); u(); const i = setInterval(u, 30000); return () => clearInterval(i) }, [])
 
   // SINGLE CONVERSATION: Load the one and only conversation, or create it
+  // WAIT for Clerk auth to be ready before calling API
   useEffect(() => {
+    if (!authLoaded || !isSignedIn) return
     async function init() {
       try {
         const allExisting = await getAllChats()
@@ -109,7 +112,7 @@ export default function ChatPage() {
       }
     }
     init()
-  }, [])
+  }, [authLoaded, isSignedIn])
 
   // Save messages whenever they change (debounced)
   useEffect(() => {
