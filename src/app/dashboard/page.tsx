@@ -7,7 +7,7 @@ import NavBar from "@/components/NavBar"
 type Agent = { name: string; icon: string; status: "done" | "active" | "waiting" | "idle"; task: string }
 type Mission = { id: number; name: string; icon: string; color: string; status: string; progress: number; phase: string; startedAt: string; agents: Agent[] }
 type Approval = { id: number; mission: string; agent: string; icon: string; action: string; reason: string; priority: "haute" | "moyenne" | "basse"; time: string }
-type Activity = { time: string; agent: string; mission: string; text: string; type: "pending" | "auto" | "alert" | "done" | "info" }
+type Activity = { time: string; agent: string; text: string; type: "pending" | "auto" | "alert" | "done" | "info" | "approved" | "rejected" }
 
 const MISSIONS: Mission[] = [
   { id: 1, name: "Dev App — Gestion Audits", icon: "💻", color: "#8B5CF6", status: "en cours", progress: 35, phase: "Phase 2 — Maquettes", startedAt: "il y a 2j",
@@ -38,21 +38,21 @@ const MISSIONS: Mission[] = [
     ] },
 ]
 
-const APPROVALS: Approval[] = [
+const INITIAL_APPROVALS: Approval[] = [
   { id: 1, mission: "Emails", agent: "Rédacteur", icon: "✍️", action: "Répondre à Nexity — partenariat DPE", reason: "Email stratégique", priority: "haute", time: "12 min" },
   { id: 2, mission: "Dev App", agent: "UX", icon: "🎨", action: "Maquette prête — valider pour coder", reason: "Gate Phase 2→3", priority: "moyenne", time: "35 min" },
   { id: 3, mission: "Vie Perso", agent: "Shopper", icon: "🛒", action: "Billet train Lyon→Paris — 67€", reason: "> 50€", priority: "basse", time: "1h" },
 ]
 
-const ACTIVITY: Activity[] = [
-  { time: "10:12", agent: "✍️", mission: "Emails", text: "Brouillon Nexity prêt → validation", type: "pending" },
-  { time: "10:08", agent: "📥", mission: "Emails", text: "3 emails triés — 1 urgent", type: "auto" },
-  { time: "09:55", agent: "⚠️", mission: "Équipe", text: "Karim — DPE Iris en retard 2j", type: "alert" },
-  { time: "09:42", agent: "🎨", mission: "Dev", text: "Maquette dashboard générée", type: "done" },
-  { time: "09:30", agent: "📊", mission: "Équipe", text: "Monday sync — 3 en retard", type: "auto" },
-  { time: "09:15", agent: "🛒", mission: "Perso", text: "Courses Carrefour — 38,50€ auto", type: "auto" },
-  { time: "08:45", agent: "📥", mission: "Emails", text: "Briefing : 8 emails, 2 urgents", type: "info" },
-  { time: "03:22", agent: "🔔", mission: "Emails", text: "Relance auto Mme Leroy", type: "auto" },
+const INITIAL_ACTIVITY: Activity[] = [
+  { time: "10:12", agent: "✍️", text: "Brouillon Nexity prêt → validation", type: "pending" },
+  { time: "10:08", agent: "📥", text: "3 emails triés — 1 urgent", type: "auto" },
+  { time: "09:55", agent: "⚠️", text: "Karim — DPE Iris en retard 2j", type: "alert" },
+  { time: "09:42", agent: "🎨", text: "Maquette dashboard générée", type: "done" },
+  { time: "09:30", agent: "📊", text: "Monday sync — 3 en retard", type: "auto" },
+  { time: "09:15", agent: "🛒", text: "Courses Carrefour — 38,50€ auto", type: "auto" },
+  { time: "08:45", agent: "📥", text: "Briefing : 8 emails, 2 urgents", type: "info" },
+  { time: "03:22", agent: "🔔", text: "Relance auto Mme Leroy", type: "auto" },
 ]
 
 const statusColors: Record<string, string> = { done: "#10B981", active: "#3B82F6", waiting: "#D4940A", idle: "#D1D5DB" }
@@ -62,23 +62,71 @@ const badges: Record<string, { bg: string; color: string; label: string }> = {
   alert: { bg: "#FEE2E2", color: "#DC2626", label: "ALERTE" },
   done: { bg: "#DBEAFE", color: "#2563EB", label: "TERMINÉ" },
   info: { bg: "#F3F4F6", color: "#6B7280", label: "INFO" },
+  approved: { bg: "#D1FAE5", color: "#059669", label: "APPROUVÉ" },
+  rejected: { bg: "#FEE2E2", color: "#DC2626", label: "REFUSÉ" },
 }
 
 export default function Dashboard() {
   const [cmd, setCmd] = useState("")
-  const [approvals, setApprovals] = useState(APPROVALS)
+  const [approvals, setApprovals] = useState(INITIAL_APPROVALS)
+  const [activity, setActivity] = useState(INITIAL_ACTIVITY)
   const [expanded, setExpanded] = useState<number | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [tab, setTab] = useState<"missions" | "validations" | "activite">("missions")
+  const [processing, setProcessing] = useState<number | null>(null)
+  const [feedback, setFeedback] = useState<Record<number, string>>({})
 
-  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
+  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 4000) }
   const totalAgents = MISSIONS.reduce((s, m) => s + m.agents.length, 0)
   const activeAgents = MISSIONS.reduce((s, m) => s + m.agents.filter(a => a.status === "active").length, 0)
+  const now = () => new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+
+  const handleValidation = async (id: number, decision: "approve" | "reject") => {
+    const item = approvals.find(a => a.id === id)
+    if (!item) return
+
+    setProcessing(id)
+
+    try {
+      const res = await fetch("/api/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: item.action, decision, approvalId: id }),
+      })
+
+      const data = await res.json()
+
+      // Remove from approvals
+      setApprovals(p => p.filter(a => a.id !== id))
+
+      // Store feedback from Maestro
+      setFeedback(p => ({ ...p, [id]: data.text }))
+
+      // Add to activity log
+      const newLog: Activity = {
+        time: now(),
+        agent: item.icon,
+        text: decision === "approve"
+          ? `✅ ${item.action} — Exécuté`
+          : `❌ ${item.action} — Annulé`,
+        type: decision === "approve" ? "approved" : "rejected",
+      }
+      setActivity(p => [newLog, ...p])
+
+      // Show toast with Maestro's response
+      showToast(data.text || (decision === "approve" ? "✅ Action exécutée" : "❌ Action annulée"))
+
+    } catch {
+      showToast("⚠️ Erreur — réessaie")
+    }
+
+    setProcessing(null)
+  }
 
   return (
     <div className="min-h-[100dvh] bg-[var(--maestro-cream)]">
       {toast && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-[var(--maestro-primary)] text-white px-6 py-3 rounded-xl text-sm font-medium z-50 shadow-xl max-w-[90vw] animate-slideDown">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-[var(--maestro-primary)] text-white px-5 py-3 rounded-xl text-[13px] font-medium z-50 shadow-xl max-w-[90vw] animate-slideDown leading-relaxed">
           {toast}
         </div>
       )}
@@ -86,7 +134,7 @@ export default function Dashboard() {
       <Header subtitle="ORCHESTRATEUR IA" rightContent={
         <>
           {approvals.length > 0 && (
-            <button onClick={() => setTab("validations")} className="bg-red-500 text-white text-[11px] font-bold font-mono px-2.5 py-1 rounded-full touch-target flex items-center justify-center">
+            <button onClick={() => setTab("validations")} className="bg-red-500 text-white text-[11px] font-bold font-mono px-2.5 py-1 rounded-full touch-target flex items-center justify-center animate-pulse-dot">
               {approvals.length}
             </button>
           )}
@@ -104,9 +152,9 @@ export default function Dashboard() {
             <span className="text-base opacity-50">💬</span>
             <input type="text" placeholder="Donne un ordre à Maestro..."
               value={cmd} onChange={e => setCmd(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") { showToast(`🎯 "${cmd}"`); setCmd("") }}}
+              onKeyDown={e => { if (e.key === "Enter" && cmd.trim()) { showToast(`🎯 Ordre envoyé : "${cmd}"`); setCmd("") }}}
               className="flex-1 border-none outline-none text-sm bg-transparent text-[var(--maestro-primary)]" />
-            <button onClick={() => { if (cmd.trim()) { showToast(`🎯 "${cmd}"`); setCmd("") }}}
+            <button onClick={() => { if (cmd.trim()) { showToast(`🎯 Ordre envoyé : "${cmd}"`); setCmd("") }}}
               className="bg-[var(--maestro-primary)] text-white rounded-xl px-4 py-2.5 text-sm font-semibold whitespace-nowrap touch-target">
               →
             </button>
@@ -114,7 +162,7 @@ export default function Dashboard() {
         </div>
 
         {/* Tabs */}
-        <div className="px-4 pt-3 flex gap-1 overflow-x-auto no-scrollbar">
+        <div className="px-4 pt-3 flex gap-1">
           {([
             { key: "missions" as const, label: "Missions", count: MISSIONS.length },
             { key: "validations" as const, label: "Validations", count: approvals.length },
@@ -130,8 +178,8 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Content */}
         <div className="px-4 pt-3 pb-24">
+          {/* MISSIONS */}
           {tab === "missions" && (
             <div className="flex flex-col gap-2.5">
               {MISSIONS.map(m => (
@@ -142,9 +190,7 @@ export default function Dashboard() {
                     <div className="flex-1 min-w-0">
                       <div className="text-[14px] font-semibold text-[var(--maestro-primary)] truncate">{m.name}</div>
                       <div className="flex items-center gap-1.5 text-[10px] text-[var(--maestro-muted)] font-mono mt-0.5">
-                        <span className="truncate">{m.phase}</span>
-                        <span>·</span>
-                        <span>{m.agents.length} agents</span>
+                        <span className="truncate">{m.phase}</span><span>·</span><span>{m.agents.length} agents</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -182,12 +228,14 @@ export default function Dashboard() {
             </div>
           )}
 
+          {/* VALIDATIONS */}
           {tab === "validations" && (
             <div className="flex flex-col gap-2.5">
               {approvals.length === 0 ? (
                 <div className="bg-white rounded-2xl p-10 text-center border border-[var(--maestro-border)] animate-fadeIn">
                   <div className="text-4xl mb-3">✅</div>
-                  <div className="font-semibold text-[var(--maestro-primary)]">Tout est validé !</div>
+                  <div className="font-semibold text-[var(--maestro-primary)] mb-1">Tout est validé !</div>
+                  <div className="text-sm text-[var(--maestro-muted)]">Tes agents tournent en autonomie.</div>
                 </div>
               ) : approvals.map(item => (
                 <div key={item.id} className="bg-white rounded-2xl p-4 border border-[var(--maestro-border)] shadow-sm animate-fadeIn"
@@ -196,13 +244,23 @@ export default function Dashboard() {
                     <span className="text-2xl">{item.icon}</span>
                     <div className="flex-1 min-w-0">
                       <div className="text-[13px] font-semibold text-[var(--maestro-primary)] leading-snug mb-1">{item.action}</div>
-                      <div className="text-[10px] text-[var(--maestro-muted)] font-mono mb-2">{item.mission} → {item.agent} · {item.time}</div>
+                      <div className="text-[10px] text-[var(--maestro-muted)] font-mono mb-2">{item.mission} → {item.agent} · il y a {item.time}</div>
                       <div className="text-[11px] text-[var(--maestro-accent)] bg-[var(--maestro-accent-bg)] px-2.5 py-1 rounded-lg inline-block mb-3">💡 {item.reason}</div>
                       <div className="flex gap-2">
-                        <button onClick={() => { setApprovals(p => p.filter(a => a.id !== item.id)); showToast("✅ Approuvé") }}
-                          className="bg-green-500 text-white rounded-xl px-4 py-2 text-[12px] font-semibold touch-target">✓ Valider</button>
-                        <button onClick={() => { setApprovals(p => p.filter(a => a.id !== item.id)); showToast("❌ Refusé") }}
-                          className="bg-[var(--maestro-surface)] text-[var(--maestro-muted)] border border-[var(--maestro-border)] rounded-xl px-4 py-2 text-[12px] font-semibold touch-target">✗ Refuser</button>
+                        <button
+                          onClick={() => handleValidation(item.id, "approve")}
+                          disabled={processing === item.id}
+                          className="bg-green-500 text-white rounded-xl px-4 py-2 text-[12px] font-semibold touch-target disabled:opacity-50 flex items-center gap-1.5">
+                          {processing === item.id ? (
+                            <><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Exécution...</>
+                          ) : "✓ Valider & Exécuter"}
+                        </button>
+                        <button
+                          onClick={() => handleValidation(item.id, "reject")}
+                          disabled={processing === item.id}
+                          className="bg-[var(--maestro-surface)] text-[var(--maestro-muted)] border border-[var(--maestro-border)] rounded-xl px-4 py-2 text-[12px] font-semibold touch-target disabled:opacity-50">
+                          ✗ Refuser
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -211,12 +269,15 @@ export default function Dashboard() {
             </div>
           )}
 
+          {/* ACTIVITÉ */}
           {tab === "activite" && (
             <div className="bg-white rounded-2xl overflow-hidden border border-[var(--maestro-border)] animate-fadeIn">
-              {ACTIVITY.map((log, i) => {
+              {activity.map((log, i) => {
                 const b = badges[log.type] || badges.info
                 return (
-                  <div key={i} className={`px-3.5 py-3 flex items-center gap-2.5 ${i < ACTIVITY.length - 1 ? "border-b border-[var(--maestro-surface)]" : ""} ${log.type === "alert" ? "bg-red-50" : ""}`}>
+                  <div key={i} className={`px-3.5 py-3 flex items-center gap-2.5 ${i < activity.length - 1 ? "border-b border-[var(--maestro-surface)]" : ""} ${
+                    log.type === "alert" ? "bg-red-50" : log.type === "approved" ? "bg-green-50" : log.type === "rejected" ? "bg-red-50/50" : ""
+                  }`}>
                     <span className="text-[10px] text-[var(--maestro-muted)] font-mono min-w-[36px]">{log.time}</span>
                     <span className="text-base">{log.agent}</span>
                     <span className="text-[8px] font-bold font-mono px-1.5 py-0.5 rounded shrink-0" style={{ background: b.bg, color: b.color }}>{b.label}</span>
