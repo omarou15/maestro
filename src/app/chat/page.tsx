@@ -23,7 +23,7 @@ const SUGGESTIONS = ["📧 Emails importants", "👥 Point équipe", "💻 Dashb
 
 function renderMd(t: string) {
   return t.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\*(.*?)\*/g, "<em>$1</em>")
-    .replace(/`(.*?)`/g, '<code class="bg-gray-100 px-1 py-0.5 rounded text-[12px] font-mono">$1</code>')
+    .replace(/`(.*?)`/g, '<code class="bg-gray-100 px-1 py-0.5 rounded text-[14px] font-mono">$1</code>')
     .replace(/^- (.*)/gm, '<div class="flex gap-2 ml-1"><span class="text-[var(--maestro-accent)]">•</span><span>$1</span></div>')
     .replace(/^(\d+)\. (.*)/gm, '<div class="flex gap-2 ml-1"><span class="text-[var(--maestro-accent)] font-mono text-xs font-bold min-w-[16px]">$1.</span><span>$2</span></div>')
 }
@@ -254,11 +254,11 @@ export default function ChatPage() {
           <div className="flex-1 overflow-auto px-3 py-3 flex flex-col gap-3 scroll-smooth">
             {messages.map(msg => (
               <div key={msg.id}>
-                {msg.role === "system" && <div className="bg-blue-50 rounded-2xl p-3 border border-blue-200 text-[12px] text-blue-800 leading-relaxed animate-fadeIn">{msg.text}</div>}
+                {msg.role === "system" && <div className="bg-blue-50 rounded-2xl p-3 border border-blue-200 text-[14px] text-blue-800 leading-relaxed animate-fadeIn">{msg.text}</div>}
                 {msg.role === "user" && (
                   <div className="flex justify-end animate-fadeIn">
                     <div className="bg-[var(--maestro-primary)] text-white rounded-[14px_14px_4px_14px] px-3.5 py-2.5 max-w-[85%]">
-                      <div className="text-[13px] leading-relaxed">{msg.text}</div>
+                      <div className="text-[16px] leading-relaxed">{msg.text}</div>
                       {msg.files && <div className="mt-1.5 flex flex-col gap-1">{msg.files.map((f,i) => <div key={i} className="flex items-center gap-1.5 bg-white/10 rounded-lg px-2 py-1 text-[10px] text-white/80"><span>📎</span>{f.name}<span className="text-white/40 font-mono">{f.size}</span></div>)}</div>}
                       <div className="text-[9px] text-white/30 mt-1 text-right font-mono">{msg.time}</div>
                     </div>
@@ -275,7 +275,7 @@ export default function ChatPage() {
                           <span className="text-[9px] text-[var(--maestro-muted)] font-mono">{msg.time}</span>
                         </div>
                         <div className="bg-white rounded-[4px_14px_14px_14px] p-3 border border-[var(--maestro-border)] shadow-sm">
-                          {cleanText && <div className="text-[13px] text-gray-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMd(cleanText) }}/>}
+                          {cleanText && <div className="text-[20px] text-[#1A2F2A] leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMd(cleanText) }}/>}
                           {artifacts.map((a,i) => <ArtifactRenderer key={i} code={a.code} title={a.title}/>)}
                           <div className="flex items-center gap-1 mt-2 pt-2 border-t border-[var(--maestro-surface)]">
                             <button onClick={() => { navigator.clipboard.writeText(msg.text); setCopiedId(msg.id); setTimeout(() => setCopiedId(null), 2000) }}
