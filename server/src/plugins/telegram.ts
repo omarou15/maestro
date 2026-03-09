@@ -4,6 +4,22 @@ import https from "https"
 import type { Plugin } from "./types.js"
 
 const BACKEND = "http://localhost:4000"
+const MAX_HISTORY = 20
+
+// Conversation history per chat
+const conversationHistory = new Map<string, Array<{ role: "user" | "assistant"; content: unknown }>>()
+
+function getHistory(chatId: string) {
+  if (!conversationHistory.has(chatId)) conversationHistory.set(chatId, [])
+  return conversationHistory.get(chatId)!
+}
+
+function addToHistory(chatId: string, role: "user" | "assistant", content: unknown) {
+  const history = getHistory(chatId)
+  history.push({ role, content })
+  // Keep last MAX_HISTORY entries (user+assistant pairs)
+  while (history.length > MAX_HISTORY) history.shift()
+}
 
 function getSystemPrompt(): string {
   const now = new Date()
@@ -102,6 +118,16 @@ const TOOLS: Anthropic.Tool[] = [
   },
 ]
 
+const TOOL_LABELS: Record<string, string> = {
+  web_search: "Recherche web en cours...",
+  orchestrate: "Lancement de mission...",
+  list_missions: "Consultation des missions...",
+  list_approvals: "Vérification des validations...",
+  resolve_approval: "Traitement de la validation...",
+  get_activity: "Lecture de l'activité...",
+  self_modify: "Modification du code en cours... (ça peut prendre quelques minutes)",
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function executeTool(name: string, input: any): Promise<string> {
   try {
@@ -127,7 +153,7 @@ async function executeTool(name: string, input: any): Promise<string> {
         return JSON.stringify(await res.json())
       }
       case "self_modify": {
-        const res = await fetch(`${BACKEND}/api/self-modify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: input.prompt }), signal: AbortSignal.timeout(200000) })
+        const res = await fetch(`${BACKEND}/api/self-modify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: input.prompt }), signal: AbortSignal.timeout(300000) })
         return JSON.stringify(await res.json())
       }
       case "web_search": {
@@ -171,8 +197,17 @@ function downloadFileAsBase64(url: string): Promise<string> {
   })
 }
 
+// Keep typing indicator alive while a long operation runs
+function startTypingLoop(bot: TelegramBot, chatId: number): NodeJS.Timeout {
+  return setInterval(async () => {
+    try { await bot.sendChatAction(chatId, "typing") } catch { /* ignore */ }
+  }, 4000)
+}
+
 async function askClaude(
   anthropic: Anthropic,
+  bot: TelegramBot,
+  chatId: number,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   messages: any[]
 ): Promise<string> {
@@ -181,13 +216,28 @@ async function askClaude(
   let finalText = ""
 
   for (let i = 0; i < 5; i++) {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
-      system: getSystemPrompt(),
-      tools: TOOLS,
-      messages: currentMessages,
-    })
+    const typingLoop = startTypingLoop(bot, chatId)
+
+    let response: Anthropic.Message
+    try {
+      response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        system: getSystemPrompt(),
+        tools: TOOLS,
+        messages: currentMessages,
+      })
+    } catch (err: unknown) {
+      clearInterval(typingLoop)
+      const isTimeout = err instanceof Error && (err.message.includes("timeout") || err.message.includes("timed out") || err.name === "APIConnectionTimeoutError")
+      if (isTimeout) {
+        await bot.sendMessage(chatId, "La tâche est toujours en cours d'exécution. Je te tiens au courant dès que c'est terminé.")
+        return ""
+      }
+      throw err
+    }
+
+    clearInterval(typingLoop)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const toolUses = response.content.filter((c: any) => c.type === "tool_use")
@@ -199,12 +249,22 @@ async function askClaude(
       break
     }
 
+    // Notify user of tool usage and keep typing
+    const toolTypingLoop = startTypingLoop(bot, chatId)
+    for (const tu of toolUses) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const label = TOOL_LABELS[(tu as any).name] ?? `Utilisation de ${(tu as any).name}...`
+      try { await bot.sendMessage(chatId, label) } catch { /* ignore */ }
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const toolResults = await Promise.all(toolUses.map(async (tu: any) => ({
       type: "tool_result" as const,
       tool_use_id: tu.id,
       content: await executeTool(tu.name, tu.input),
     })))
+
+    clearInterval(toolTypingLoop)
 
     currentMessages = [
       ...currentMessages,
@@ -239,7 +299,8 @@ export const telegramPlugin: Plugin = {
     }
 
     const bot = new TelegramBot(token, { polling: true })
-    const anthropic = new Anthropic({ apiKey })
+    // 5-minute timeout for long operations like self_modify
+    const anthropic = new Anthropic({ apiKey, timeout: 300000 })
 
     // API route to send messages via Telegram from other parts of the system
     ctx.app.post("/api/telegram/send", async (req, res) => {
@@ -299,12 +360,21 @@ export const telegramPlugin: Plugin = {
         // Fire event for hooks
         await ctx.fire("chat:message", { channel: "telegram", from: chatIdStr, text })
 
-        const messages = [{ role: "user", content: contentBlocks }]
-        const reply = await askClaude(anthropic, messages)
+        // Add user message to history
+        addToHistory(chatIdStr, "user", contentBlocks)
 
-        const parts = splitMessage(reply)
-        for (const part of parts) {
-          await bot.sendMessage(chatId, part)
+        // Build full messages array from history
+        const history = getHistory(chatIdStr)
+        const reply = await askClaude(anthropic, bot, chatId, history)
+
+        if (reply) {
+          // Add assistant reply to history
+          addToHistory(chatIdStr, "assistant", [{ type: "text", text: reply }])
+
+          const parts = splitMessage(reply)
+          for (const part of parts) {
+            await bot.sendMessage(chatId, part)
+          }
         }
       } catch (err) {
         console.error("[TELEGRAM] Erreur:", err)
