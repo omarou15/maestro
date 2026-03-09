@@ -39,7 +39,7 @@ async function getMemoryContext(userId: string): Promise<string> {
   } catch { return "" }
 }
 
-function getSystemPrompt(compactionContext?: string, memoryContext?: string) {
+function getSystemPrompt(compactionContext?: string, memoryContext?: string, skillsContext?: string) {
   const now = new Date()
   const dateStr = now.toLocaleDateString("fr-FR", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
@@ -107,6 +107,10 @@ Quand on demande une interface/composant :
     prompt += `\n\n${memoryContext}`
   }
 
+  if (skillsContext) {
+    prompt += `\n\n${skillsContext}`
+  }
+
   if (compactionContext) {
     prompt += `\n\n${compactionContext}`
   }
@@ -167,6 +171,17 @@ const TOOLS = [
       required: ["prompt"],
     },
   },
+  {
+    name: "get_skill",
+    description: "Charge le contenu complet d'un skill par son ID. Utilise cet outil quand tu as besoin des instructions détaillées d'un skill pour exécuter une tâche.",
+    input_schema: {
+      type: "object",
+      properties: {
+        skillId: { type: "string", description: "L'identifiant du skill (ex: courses-carrefour, email-clients)" },
+      },
+      required: ["skillId"],
+    },
+  },
 ]
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -210,6 +225,10 @@ async function executeTool(name: string, input: any): Promise<string> {
         })
         return JSON.stringify(await res.json())
       }
+      case "get_skill": {
+        const res = await fetch(`${BACKEND}/api/skills/${input.skillId}`)
+        return JSON.stringify(await res.json())
+      }
       default:
         return JSON.stringify({ error: `Outil inconnu : ${name}` })
     }
@@ -244,7 +263,20 @@ export async function POST(req: NextRequest) {
       if (needs) memoryContext = await getMemoryContext(userId)
     }
 
-    const systemPrompt = getSystemPrompt(compactionContext || undefined, memoryContext || undefined)
+    // Fetch available skills from Hetzner
+    let skillsContext = ""
+    try {
+      const skillsRes = await fetch("http://178.156.251.108:4000/api/skills", { signal: AbortSignal.timeout(3000) })
+      const skillsData = await skillsRes.json()
+      if (skillsData.skills?.length > 0) {
+        const skillList = skillsData.skills.map((s: { id: string; name: string; description: string }) =>
+          `- [${s.id}] ${s.description}`
+        ).join("\n")
+        skillsContext = `\nSKILLS DISPONIBLES :\n${skillList}\n\nQuand un message correspond à un skill, applique les instructions de ce skill. Tu peux demander le détail d'un skill via l'outil get_skill.`
+      }
+    } catch { /* skills unavailable, continue without */ }
+
+    const systemPrompt = getSystemPrompt(compactionContext || undefined, memoryContext || undefined, skillsContext || undefined)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let currentMessages: any[] = messages.map((m: { role: string; content: string }) => ({

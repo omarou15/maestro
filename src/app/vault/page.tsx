@@ -46,6 +46,8 @@ const DEFAULT_MODELS = [
 
 const MODEL_OPTIONS = ["Claude Opus 4", "Claude Sonnet 4", "Claude Haiku", "Claude Code", "GPT-4o", "Gemini 2.5"]
 
+type SkillItem = { id: string; name: string; description: string }
+
 type FormState = {
   category: string; name: string; icon: string; type: string
   value: string; status: "active" | "inactive"; note: string
@@ -55,7 +57,7 @@ const EMPTY_FORM: FormState = { category: "services", name: "", icon: "🔑", ty
 export default function VaultPage() {
   const [items, setItems] = useState<VaultItem[]>([])
   const [filter, setFilter] = useState("all")
-  const [activeTab, setActiveTab] = useState<"coffre" | "regles" | "modeles" | "core">("coffre")
+  const [activeTab, setActiveTab] = useState<"coffre" | "regles" | "modeles" | "skills" | "core">("coffre")
   // Core state
   const [coreSubTab, setCoreSubTab] = useState<"claude" | "maestro" | "goals" | "learnings" | "crons" | "heartbeat">("claude")
   const [fileContent, setFileContent] = useState<Record<string, string>>({})
@@ -63,6 +65,11 @@ export default function VaultPage() {
   const [crons, setCrons] = useState<CronItem[]>([])
   const [heartbeat, setHeartbeat] = useState<HeartbeatData | null>(null)
   const [coreLoading, setCoreLoading] = useState(false)
+  // Skills state
+  const [skills, setSkills] = useState<SkillItem[]>([])
+  const [skillsLoading, setSkillsLoading] = useState(false)
+  const [editingSkill, setEditingSkill] = useState<{ id: string; content: string } | null>(null)
+  const [newSkillId, setNewSkillId] = useState("")
   const [revealedValues, setRevealedValues] = useState<Record<number, string>>({})
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -75,6 +82,82 @@ export default function VaultPage() {
   const [editingModelIdx, setEditingModelIdx] = useState<number | null>(null)
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
+
+  const loadSkills = useCallback(async () => {
+    setSkillsLoading(true)
+    try {
+      const res = await fetch("/api/skills")
+      const data = await res.json()
+      setSkills(data.skills || [])
+    } catch { /* silent */ }
+    setSkillsLoading(false)
+  }, [])
+
+  const loadSkillContent = async (id: string) => {
+    try {
+      const res = await fetch(`/api/skills/${id}`)
+      const data = await res.json()
+      setEditingSkill({ id, content: data.raw || "" })
+    } catch { showToast("⚠️ Erreur chargement skill") }
+  }
+
+  const saveSkill = async () => {
+    if (!editingSkill) return
+    setFileSaving(true)
+    try {
+      const res = await fetch(`/api/skills/${editingSkill.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: editingSkill.content }),
+      })
+      if (res.ok) {
+        showToast(`✅ Skill "${editingSkill.id}" sauvegardé`)
+        setEditingSkill(null)
+        loadSkills()
+      }
+    } catch { showToast("⚠️ Erreur sauvegarde") }
+    setFileSaving(false)
+  }
+
+  const deleteSkill = async (id: string) => {
+    try {
+      await fetch(`/api/skills/${id}`, { method: "DELETE" })
+      showToast(`🗑️ Skill "${id}" supprimé`)
+      loadSkills()
+    } catch { showToast("⚠️ Erreur suppression") }
+  }
+
+  const createNewSkill = () => {
+    if (!newSkillId.trim()) return
+    const slug = newSkillId.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-")
+    const template = `---
+name: ${slug}
+description: "Décris ici quand ce skill doit être utilisé"
+---
+
+# ${slug}
+
+## Quand utiliser
+
+✅ Utilise ce skill quand :
+- ...
+
+## Instructions
+
+1. ...
+2. ...
+
+## Notes
+
+- ...
+`
+    setEditingSkill({ id: slug, content: template })
+    setNewSkillId("")
+  }
+
+  useEffect(() => {
+    if (activeTab === "skills") loadSkills()
+  }, [activeTab, loadSkills])
 
   const loadItems = useCallback(async () => {
     try {
@@ -272,6 +355,7 @@ export default function VaultPage() {
           { key: "coffre" as const, label: "🔑 Coffre-fort", count: items.length },
           { key: "regles" as const, label: "⚡ Autonomie", count: rules.length },
           { key: "modeles" as const, label: "🧠 Modèles IA", count: modelConfigs.length },
+          { key: "skills" as const, label: "🎯 Skills", count: skills.length },
           { key: "core" as const, label: "⚙️ Core", count: null },
         ]).map(t => (
           <button key={t.key} onClick={() => setActiveTab(t.key)}
@@ -434,6 +518,87 @@ export default function VaultPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+        {/* SKILLS */}
+        {activeTab === "skills" && (
+          <div className="flex flex-col gap-2.5">
+            <div className="bg-green-50 rounded-xl p-3.5 border border-green-200 flex items-center gap-3 mb-1">
+              <span className="text-xl">🎯</span>
+              <div>
+                <div className="text-[13px] font-semibold text-green-900">Skills Maestro</div>
+                <div className="text-[12px] text-green-700">Compétences en Markdown — Maestro les charge automatiquement selon ta demande</div>
+              </div>
+            </div>
+
+            {editingSkill ? (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-[13px] font-semibold text-[var(--maestro-primary)]">✏️ {editingSkill.id}/SKILL.md</div>
+                  <button onClick={() => setEditingSkill(null)} className="text-[11px] text-[var(--maestro-muted)]">✕ Fermer</button>
+                </div>
+                <textarea
+                  value={editingSkill.content}
+                  onChange={e => setEditingSkill({ ...editingSkill, content: e.target.value })}
+                  className="w-full border border-[var(--maestro-border)] rounded-xl p-3.5 text-[12px] font-mono outline-none focus:border-[var(--maestro-accent)] resize-none bg-white text-[var(--maestro-primary)]"
+                  rows={20}
+                />
+                <button onClick={saveSkill} disabled={fileSaving}
+                  className="bg-[var(--maestro-primary)] text-white rounded-xl py-3 text-[13px] font-semibold disabled:opacity-50">
+                  {fileSaving ? "⏳ Sauvegarde + git push..." : "💾 Sauvegarder le skill"}
+                </button>
+              </div>
+            ) : (
+              <>
+                {skillsLoading ? (
+                  <div className="text-center py-8 text-[var(--maestro-muted)] text-[13px]">Chargement des skills depuis Hetzner...</div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {skills.map(skill => (
+                      <div key={skill.id} className="bg-white rounded-2xl p-4 border border-[var(--maestro-border)] flex items-center gap-3.5">
+                        <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center text-lg shrink-0">📄</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[13px] font-semibold text-[var(--maestro-primary)]">{skill.name || skill.id}</div>
+                          <div className="text-[11px] text-[var(--maestro-muted)] truncate">{skill.description || "Pas de description"}</div>
+                        </div>
+                        <div className="flex gap-1.5 shrink-0">
+                          <button onClick={() => loadSkillContent(skill.id)}
+                            className="bg-[var(--maestro-surface)] border border-[var(--maestro-border)] rounded-lg px-2.5 py-1 text-[10px] font-semibold text-gray-500 hover:border-[var(--maestro-accent)] transition-colors">
+                            Éditer
+                          </button>
+                          <button onClick={() => deleteSkill(skill.id)}
+                            className="text-[9px] text-red-400 hover:text-red-600 font-mono px-1.5 py-1">
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {skills.length === 0 && (
+                      <div className="bg-white rounded-2xl p-8 border border-[var(--maestro-border)] text-center">
+                        <div className="text-3xl mb-2">🎯</div>
+                        <div className="text-[13px] text-[var(--maestro-muted)]">Aucun skill — crée ton premier ci-dessous</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* New skill creation */}
+                <div className="flex gap-2 mt-2">
+                  <input
+                    type="text"
+                    value={newSkillId}
+                    onChange={e => setNewSkillId(e.target.value)}
+                    placeholder="nom-du-skill (ex: courses-carrefour)"
+                    className="flex-1 border border-[var(--maestro-border)] rounded-xl px-3 py-2.5 text-[12px] outline-none focus:border-[var(--maestro-accent)] bg-white"
+                    onKeyDown={e => e.key === "Enter" && createNewSkill()}
+                  />
+                  <button onClick={createNewSkill} disabled={!newSkillId.trim()}
+                    className="bg-[var(--maestro-primary)] text-white rounded-xl px-4 py-2.5 text-[12px] font-semibold disabled:opacity-30">
+                    + Créer
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
         {/* CORE */}
