@@ -72,6 +72,7 @@ export default function ChatPage() {
   const [attachments, setAttachments] = useState<File[]>([])
   const [compacting, setCompacting] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [codeMode, setCodeMode] = useState(false)
   const [allChats, setAllChats] = useState<ChatSession[]>([])
   const [loaded, setLoaded] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -178,67 +179,102 @@ export default function ChatPage() {
 
     const controller = new AbortController(); abortRef.current = controller
     try {
-      const hist = [...messages.filter(m => m.role !== "system"), userMsg].map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.files ? `${m.text}\n[Fichiers: ${m.files.map(f=>f.name).join(", ")}]` : m.text }))
-      const compCtx = chatId ? await getCompactionContext(chatId) : null
+      let assistantMsg: StoredMessage
 
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: hist, compactionContext: compCtx }),
-        signal: controller.signal,
-      })
-      const data = await res.json()
-      stopThink()
-      const assistantMsg: StoredMessage = {
-        id: Date.now() + 1, role: "assistant",
-        model: data.model || "claude-sonnet",
-        time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
-        text: data.error ? "⚠️ Erreur. Réessaie." : data.text,
+      if (codeMode) {
+        // Mode Claude Code — direct sur maestro-cli Hetzner
+        const res = await fetch("/api/code", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: msgText }),
+          signal: controller.signal,
+        })
+        const data = await res.json()
+        stopThink()
+        assistantMsg = {
+          id: Date.now() + 1, role: "assistant", model: "claude-code",
+          time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
+          text: data.success ? (data.output || "✅ Claude Code a exécuté la tâche.") : `⚠️ ${data.error || "Erreur Claude Code"}`,
+        }
+      } else {
+        // Mode chat normal — Sonnet avec outils
+        const hist = [...messages.filter(m => m.role !== "system"), userMsg].map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.files ? `${m.text}\n[Fichiers: ${m.files.map(f=>f.name).join(", ")}]` : m.text }))
+        const compCtx = chatId ? await getCompactionContext(chatId) : null
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: hist, compactionContext: compCtx }),
+          signal: controller.signal,
+        })
+        const data = await res.json()
+        stopThink()
+        assistantMsg = {
+          id: Date.now() + 1, role: "assistant",
+          model: data.model || "claude-sonnet",
+          time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
+          text: data.error ? "⚠️ Erreur. Réessaie." : data.text,
+        }
+        // Extraction mémoire silencieuse en background
+        fetch("/api/memory/extract", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userMessage: msgText, assistantMessage: assistantMsg.text }),
+        }).then(r => r.json()).then(d => {
+          if (d.count > 0) showToastMsg(`🧠 ${d.count} souvenir${d.count > 1 ? "s" : ""} capturé${d.count > 1 ? "s" : ""}`)
+        }).catch(() => {})
       }
+
       setMessages(p => {
         const updated = [...p, assistantMsg]
-        if (shouldCompact(updated)) showToastMsg("💡 Conversation longue — pense à compacter (bouton 📦)")
+        if (!codeMode && shouldCompact(updated)) showToastMsg("💡 Conversation longue — pense à compacter (bouton 📦)")
         return updated
       })
-
-      // Extraction mémoire silencieuse en background
-      fetch("/api/memory/extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userMessage: msgText, assistantMessage: assistantMsg.text }),
-      }).then(r => r.json()).then(d => {
-        if (d.count > 0) showToastMsg(`🧠 ${d.count} souvenir${d.count > 1 ? "s" : ""} capturé${d.count > 1 ? "s" : ""}`)
-      }).catch(() => {})
     } catch (e: unknown) {
       stopThink()
       if (e instanceof Error && e.name !== "AbortError") {
-        setMessages(p => [...p, { id: Date.now()+1, role: "assistant" as const, model: "claude-sonnet", time: new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}), text: "⚠️ Serveur injoignable." }])
+        setMessages(p => [...p, { id: Date.now()+1, role: "assistant" as const, model: codeMode ? "claude-code" : "claude-sonnet", time: new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}), text: "⚠️ Serveur injoignable." }])
       }
     }
     abortRef.current = null
   }
 
   const nonSystemMsgs = messages.filter(m => m.role !== "system")
-  const getModel = (id?: string) => MODELS.find(m => m.id === id)
+  const getModel = (id?: string) => {
+    if (id === "claude-code") return { id: "claude-code", name: "Claude Code", icon: "</>", color: "#22C55E" }
+    return MODELS.find(m => m.id === id)
+  }
 
   return (
     <div className="h-[100dvh] flex flex-col bg-[var(--maestro-cream)]">
       {toast && <div className="fixed top-3 left-1/2 -translate-x-1/2 bg-[var(--maestro-primary)] text-white px-5 py-2.5 rounded-xl text-[12px] font-medium z-50 shadow-xl max-w-[85vw] animate-slideDown">{toast}</div>}
 
       {/* Header */}
-      <header className="bg-[var(--maestro-primary)] px-3 h-12 flex items-center justify-between shrink-0">
+      <header className={`px-3 h-12 flex items-center justify-between shrink-0 transition-colors duration-300 ${codeMode ? "bg-[#0D1117]" : "bg-[var(--maestro-primary)]"}`}>
         <div className="flex items-center gap-2">
           <button onClick={() => setShowHistory(!showHistory)} className="text-white/60 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
           </button>
           <a href="/dashboard"><MaestroLogo size={24} /></a>
           <div>
-            <div className="text-white text-[13px] font-bold tracking-tight">Maestro</div>
-            <div className="text-white/40 text-[8px] font-mono">{clock} · {MODELS.length} IA</div>
+            <div className="text-white text-[13px] font-bold tracking-tight">{codeMode ? "Claude Code" : "Maestro"}</div>
+            <div className={`text-[8px] font-mono ${codeMode ? "text-green-400/70" : "text-white/40"}`}>{codeMode ? "maestro-cli · Hetzner" : `${clock} · ${MODELS.length} IA`}</div>
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {nonSystemMsgs.length >= 20 && (
+          {/* Toggle Claude Code */}
+          <button onClick={() => setCodeMode(p => !p)}
+            title={codeMode ? "Revenir au chat" : "Passer en mode Claude Code"}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono transition-all ${
+              codeMode
+                ? "bg-green-500/20 text-green-400 border border-green-500/40"
+                : "bg-white/10 text-white/60 hover:text-white hover:bg-white/15"
+            }`}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+            </svg>
+            {codeMode ? "CC" : "</>"}
+          </button>
+          {!codeMode && nonSystemMsgs.length >= 20 && (
             <button onClick={doCompact} disabled={compacting}
               className="text-white/60 hover:text-white text-[10px] font-mono px-2 py-1 rounded-lg hover:bg-white/10 transition-colors disabled:opacity-50">
               {compacting ? "⏳" : "📦"} {compacting ? "..." : nonSystemMsgs.length}
@@ -247,7 +283,7 @@ export default function ChatPage() {
           <button onClick={newChat} className="text-white/60 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
           </button>
-          <button onClick={() => setShowModels(!showModels)} className="bg-white/10 text-white text-[10px] font-semibold px-2 py-1 rounded-lg">🧠</button>
+          {!codeMode && <button onClick={() => setShowModels(!showModels)} className="bg-white/10 text-white text-[10px] font-semibold px-2 py-1 rounded-lg">🧠</button>}
           <UserButton afterSignOutUrl="/" />
         </div>
       </header>
@@ -353,7 +389,7 @@ export default function ChatPage() {
               <button onClick={() => fileRef.current?.click()} className="w-10 h-10 rounded-xl flex items-center justify-center bg-[var(--maestro-surface)] border border-[var(--maestro-border)] shrink-0 touch-target hover:border-[var(--maestro-accent)] transition-colors">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--maestro-muted)" strokeWidth="2" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
               </button>
-              <input type="text" placeholder="Parle à Maestro..." value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()} disabled={isTyping}
+              <input type="text" placeholder={codeMode ? "Décris la modification à apporter au code..." : "Parle à Maestro..."} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()} disabled={isTyping}
                 className="flex-1 border-[1.5px] border-[var(--maestro-border)] rounded-xl px-3.5 py-2.5 text-[14px] outline-none bg-[var(--maestro-cream)] text-[var(--maestro-primary)] focus:border-[var(--maestro-accent)] transition-colors disabled:opacity-50"/>
               {isTyping ? (
                 <button onClick={() => { abortRef.current?.abort(); stopThink() }} className="w-10 h-10 rounded-xl flex items-center justify-center bg-red-500 shrink-0 touch-target">
