@@ -208,12 +208,20 @@ async function executeTool(name: string, input: any): Promise<string> {
 export async function POST(req: NextRequest) {
   try {
     const { userId } = await auth()
-    const { messages, compactionContext } = await req.json()
+    const { messages, compactionContext, model } = await req.json()
 
     const apiKey = process.env.ANTHROPIC_API_KEY
     if (!apiKey) {
       return NextResponse.json({ error: "API key not configured" }, { status: 500 })
     }
+
+    // Map model selection to actual model IDs
+    const modelMap: Record<string, string> = {
+      "claude-opus": "claude-opus-4-0-20250514",
+      "claude-sonnet": "claude-sonnet-4-20250514",
+      "claude-haiku": "claude-haiku-4-5-20251001",
+    }
+    const actualModel = modelMap[model || "claude-sonnet"] || modelMap["claude-sonnet"]
 
     // Router mémoire intelligent
     const lastUserMsg = [...messages].reverse().find((m: { role: string }) => m.role === "user")?.content || ""
@@ -245,7 +253,7 @@ export async function POST(req: NextRequest) {
           "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: actualModel,
           max_tokens: 4096,
           system: systemPrompt,
           tools: TOOLS,
@@ -293,7 +301,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ text: finalText, model: "claude-sonnet", usage: lastUsage })
+    return NextResponse.json({ text: finalText, model: model || "claude-sonnet", usage: lastUsage })
   } catch (error) {
     console.error("Chat API error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

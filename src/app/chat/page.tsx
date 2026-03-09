@@ -69,6 +69,8 @@ export default function ChatPage() {
   const [attachments, setAttachments] = useState<File[]>([])
   const [toast, setToast] = useState<string | null>(null)
   const [codeMode, setCodeMode] = useState(false)
+  const [selectedModel, setSelectedModel] = useState<string>("claude-sonnet")
+  const [showModelPicker, setShowModelPicker] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -113,6 +115,11 @@ export default function ChatPage() {
   }, [authLoaded, isSignedIn])
 
   // Save messages whenever they change (debounced)
+  const messagesRef = useRef(messages)
+  const chatIdRef = useRef(chatId)
+  messagesRef.current = messages
+  chatIdRef.current = chatId
+
   useEffect(() => {
     if (!chatId || !loaded || messages.length === 0) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
@@ -121,6 +128,27 @@ export default function ChatPage() {
     }, 500)
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
   }, [messages, chatId, loaded])
+
+  // Save on page close/navigation
+  useEffect(() => {
+    const saveNow = () => {
+      if (chatIdRef.current && messagesRef.current.length > 0) {
+        fetch(`/api/conversations/${chatIdRef.current}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: messagesRef.current, title: "Maestro" }),
+          keepalive: true, // ensures request completes even after page closes
+        }).catch(() => {})
+      }
+    }
+    window.addEventListener("beforeunload", saveNow)
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") saveNow()
+    })
+    return () => {
+      window.removeEventListener("beforeunload", saveNow)
+    }
+  }, [])
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }) }, [messages, isTyping, thinkStatus])
 
@@ -191,11 +219,11 @@ export default function ChatPage() {
         const compCtx = chatId ? await getCompactionContext(chatId) : null
 
         // Step 2: Call Claude
-        setThinkStatus("⚡ Claude Sonnet réfléchit...")
+        setThinkStatus(`⚡ ${selectedModel === "claude-opus" ? "Claude Opus" : selectedModel === "claude-haiku" ? "Claude Haiku" : "Claude Sonnet"} réfléchit...`)
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: hist, compactionContext: compCtx }),
+          body: JSON.stringify({ messages: hist, compactionContext: compCtx, model: selectedModel }),
           signal: controller.signal,
         })
 
@@ -256,6 +284,35 @@ export default function ChatPage() {
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {/* Model selector */}
+          {!codeMode && (
+            <div className="relative">
+              <button onClick={() => setShowModelPicker(p => !p)}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold font-mono bg-white/10 text-white/70 hover:text-white hover:bg-white/15 transition-all">
+                {selectedModel === "claude-opus" ? "🧠" : selectedModel === "claude-haiku" ? "🐇" : "⚡"}
+                {selectedModel === "claude-opus" ? "Opus" : selectedModel === "claude-haiku" ? "Haiku" : "Sonnet"}
+              </button>
+              {showModelPicker && (
+                <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-[var(--maestro-border)] overflow-hidden z-50 min-w-[160px]">
+                  {[
+                    { id: "claude-sonnet", name: "Sonnet", icon: "⚡", desc: "Rapide & intelligent" },
+                    { id: "claude-opus", name: "Opus", icon: "🧠", desc: "Le plus puissant" },
+                    { id: "claude-haiku", name: "Haiku", icon: "🐇", desc: "Ultra-rapide" },
+                  ].map(m => (
+                    <button key={m.id} onClick={() => { setSelectedModel(m.id); setShowModelPicker(false) }}
+                      className={`w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-[var(--maestro-surface)] transition-colors ${selectedModel === m.id ? "bg-[var(--maestro-surface)]" : ""}`}>
+                      <span className="text-sm">{m.icon}</span>
+                      <div>
+                        <div className="text-[12px] font-semibold text-[var(--maestro-primary)]">{m.name}</div>
+                        <div className="text-[9px] text-[var(--maestro-muted)]">{m.desc}</div>
+                      </div>
+                      {selectedModel === m.id && <span className="ml-auto text-[var(--maestro-accent)] text-xs">✓</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <button onClick={() => setCodeMode(p => !p)}
             title={codeMode ? "Revenir au chat" : "Passer en mode Claude Code"}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono transition-all ${
