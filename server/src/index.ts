@@ -2,21 +2,27 @@ import express from "express"
 import cors from "cors"
 import cron from "node-cron"
 import dotenv from "dotenv"
+import { createServer } from "http"
 import { spawnSync } from "child_process"
-import { writeFileSync, unlinkSync, readFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "fs"
+import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "fs"
 import { execSync } from "child_process"
-import { tmpdir } from "os"
 import { join } from "path"
 import { createMission, getMissions, getMission, deleteMission, getApprovals, addApproval, resolveApproval, orchestrate, runAgent, getActivityLog } from "./lib/agentManager.js"
 import { runHeartbeat, getSelfAwareness } from "./crons/heartbeat.js"
 import { selfHeal, createBackup, checkGitStatus } from "./crons/resilience.js"
 import { startTelegramBot } from "./telegram.js"
+import { initGateway, getConnectedClients } from "./gateway.js"
+import { fire, EVENTS } from "./hooks.js"
 
 dotenv.config()
 
 const app = express()
+const server = createServer(app)
 const PORT = process.env.PORT || 4000
 const STARTED_AT = new Date().toISOString()
+
+// Initialize WebSocket gateway
+initGateway(server)
 
 app.use(cors({ origin: process.env.FRONTEND_URL || "*" }))
 app.use(express.json())
@@ -30,6 +36,7 @@ app.get("/health", (_, res) => {
     startedAt: STARTED_AT,
     missions: getMissions().length,
     uptime: process.uptime(),
+    wsClients: getConnectedClients(),
   })
 })
 
@@ -57,11 +64,13 @@ app.post("/api/missions", async (req, res) => {
   const { name, type, icon } = req.body
   if (!name || !type) return res.status(400).json({ error: "name and type required" })
   const mission = createMission(name, type, icon || "🎯")
+  fire(EVENTS.MISSION_CREATED, { mission })
   res.json({ mission })
 })
 
 app.delete("/api/missions/:id", (req, res) => {
   deleteMission(req.params.id)
+  fire(EVENTS.MISSION_DELETED, { id: req.params.id })
   res.json({ ok: true })
 })
 
@@ -71,6 +80,7 @@ app.post("/api/orchestrate", async (req, res) => {
     const { message } = req.body
     if (!message) return res.status(400).json({ error: "message required" })
     const result = await orchestrate(message)
+    fire(EVENTS.ACTIVITY, { text: `Orchestration: "${message.slice(0, 80)}"`, type: "auto" })
     res.json(result)
   } catch (e) {
     res.status(500).json({ error: `Orchestration failed: ${e}` })
@@ -85,7 +95,9 @@ app.post("/api/agents/:agentId/run", async (req, res) => {
     if (!mission) return res.status(404).json({ error: "Mission not found" })
     const agent = mission.agents.find(a => a.id === req.params.agentId)
     if (!agent) return res.status(404).json({ error: "Agent not found" })
+    fire(EVENTS.AGENT_STARTED, { agentId: agent.id, name: agent.name, task })
     const result = await runAgent(agent, task)
+    fire(EVENTS.AGENT_COMPLETED, { agentId: agent.id, name: agent.name, result: result.slice(0, 200) })
     res.json({ result, agent: { id: agent.id, name: agent.name, status: agent.status, lastAction: agent.lastAction } })
   } catch (e) {
     res.status(500).json({ error: `Agent failed: ${e}` })
@@ -100,12 +112,14 @@ app.get("/api/approvals", (_, res) => {
 app.post("/api/approvals", (req, res) => {
   const { missionId, agentId, action, reason } = req.body
   const id = addApproval(missionId || "", agentId || "", action, reason)
+  fire(EVENTS.APPROVAL_NEEDED, { id, action, reason })
   res.json({ id })
 })
 
 app.post("/api/approvals/:id/resolve", (req, res) => {
   const { decision } = req.body
   const approval = resolveApproval(req.params.id)
+  fire(EVENTS.APPROVAL_RESOLVED, { id: req.params.id, decision, approval })
   res.json({ resolved: true, decision, approval })
 })
 
@@ -321,11 +335,11 @@ function saveCronsData(data: CronEntry[]) {
 
 function updateCronLastRun(id: string, status: string, output?: string) {
   const data = loadCronsData()
-  const cron = data.find(c => c.id === id)
-  if (cron) {
-    cron.lastRun = new Date().toISOString()
-    cron.lastStatus = status
-    if (output) cron.lastOutput = output.slice(0, 500)
+  const entry = data.find(c => c.id === id)
+  if (entry) {
+    entry.lastRun = new Date().toISOString()
+    entry.lastStatus = status
+    if (output) entry.lastOutput = output.slice(0, 500)
     saveCronsData(data)
   }
 }
@@ -338,15 +352,16 @@ app.get("/api/crons", (_, res) => {
 // Update a cron (toggle active, change schedule, etc.)
 app.patch("/api/crons/:id", (req, res) => {
   const data = loadCronsData()
-  const cron = data.find(c => c.id === req.params.id)
-  if (!cron) return res.status(404).json({ error: "Cron not found" })
+  const entry = data.find(c => c.id === req.params.id)
+  if (!entry) return res.status(404).json({ error: "Cron not found" })
   const { active, schedule, description, name } = req.body
-  if (typeof active === "boolean") cron.active = active
-  if (schedule) cron.schedule = schedule
-  if (description) cron.description = description
-  if (name) cron.name = name
+  if (typeof active === "boolean") entry.active = active
+  if (schedule) entry.schedule = schedule
+  if (description) entry.description = description
+  if (name) entry.name = name
   saveCronsData(data)
-  res.json({ ok: true, cron })
+  fire(EVENTS.CRON_UPDATED, { cron: entry })
+  res.json({ ok: true, cron: entry })
 })
 
 // Create a new cron
@@ -381,6 +396,7 @@ cron.schedule("*/5 * * * *", () => {
   if (!isCronActive("heartbeat")) return
   const result = runHeartbeat()
   updateCronLastRun("heartbeat", "ok", JSON.stringify(result).slice(0, 200))
+  fire(EVENTS.HEARTBEAT, { ...result, wsClients: getConnectedClients() })
 })
 
 // Self-heal — every 30 minutes
@@ -388,6 +404,7 @@ cron.schedule("*/30 * * * *", () => {
   if (!isCronActive("selfheal")) return
   selfHeal()
   updateCronLastRun("selfheal", "ok")
+  fire(EVENTS.SELF_HEAL, { time: new Date().toISOString() })
 })
 
 // Daily backup — every day at 3 AM
@@ -419,7 +436,7 @@ cron.schedule("0 6 * * *", () => {
   updateCronLastRun("briefing", "ok", "Briefing généré")
 })
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   // Initial heartbeat
   const heartbeat = runHeartbeat()
   
