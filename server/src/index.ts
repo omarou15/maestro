@@ -1,18 +1,19 @@
 import express from "express"
 import cors from "cors"
-import cron from "node-cron"
 import dotenv from "dotenv"
 import { createServer } from "http"
 import { spawnSync } from "child_process"
-import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "fs"
+import { writeFileSync, readFileSync, existsSync } from "fs"
 import { execSync } from "child_process"
-import { join } from "path"
 import { createMission, getMissions, getMission, deleteMission, getApprovals, addApproval, resolveApproval, orchestrate, runAgent, getActivityLog } from "./lib/agentManager.js"
 import { runHeartbeat, getSelfAwareness } from "./crons/heartbeat.js"
-import { selfHeal, createBackup, checkGitStatus } from "./crons/resilience.js"
-import { startTelegramBot } from "./telegram.js"
+import { checkGitStatus } from "./crons/resilience.js"
 import { initGateway, getConnectedClients } from "./gateway.js"
 import { fire, EVENTS } from "./hooks.js"
+import { registerPlugin, getPlugins } from "./plugins/registry.js"
+import { telegramPlugin } from "./plugins/telegram.js"
+import { skillsPlugin } from "./plugins/skills.js"
+import { cronsPlugin } from "./plugins/crons.js"
 
 dotenv.config()
 
@@ -27,6 +28,8 @@ initGateway(server)
 app.use(cors({ origin: process.env.FRONTEND_URL || "*" }))
 app.use(express.json())
 
+// === CORE ROUTES ===
+
 // Health check
 app.get("/health", (_, res) => {
   res.json({
@@ -37,6 +40,7 @@ app.get("/health", (_, res) => {
     missions: getMissions().length,
     uptime: process.uptime(),
     wsClients: getConnectedClients(),
+    plugins: getPlugins().map(p => ({ id: p.id, name: p.name, version: p.version })),
   })
 })
 
@@ -46,7 +50,13 @@ app.get("/api/self", (_, res) => {
     awareness: getSelfAwareness(),
     heartbeat: runHeartbeat(),
     git: checkGitStatus(),
+    plugins: getPlugins().map(p => ({ id: p.id, name: p.name, version: p.version })),
   })
+})
+
+// Plugins list
+app.get("/api/plugins", (_, res) => {
+  res.json({ plugins: getPlugins().map(p => ({ id: p.id, name: p.name, version: p.version })) })
 })
 
 // === MISSIONS ===
@@ -128,7 +138,7 @@ app.get("/api/activity", (_, res) => {
   res.json({ log: getActivityLog() })
 })
 
-// === RESTART (répond avant de redémarrer) ===
+// === RESTART ===
 app.post("/api/restart", (_, res) => {
   res.json({ ok: true, message: "Redémarrage dans 1 seconde..." })
   setTimeout(() => {
@@ -136,13 +146,12 @@ app.post("/api/restart", (_, res) => {
   }, 1000)
 })
 
-// === SELF-UPDATE (git pull + npm install + restart — no Claude Code needed) ===
+// === SELF-UPDATE ===
 app.post("/api/update", (_, res) => {
   try {
     const pull = execSync("cd /root/maestro && git pull origin main 2>&1", { encoding: "utf8", timeout: 30000 })
     const install = execSync("cd /root/maestro/server && npm install 2>&1", { encoding: "utf8", timeout: 60000 })
     res.json({ ok: true, pull: pull.trim(), install: install.slice(-200) })
-    // Restart after response
     setTimeout(() => {
       spawnSync("systemctl", ["restart", "maestro-core"], { encoding: "utf8" })
     }, 1000)
@@ -151,31 +160,22 @@ app.post("/api/update", (_, res) => {
   }
 })
 
-// === SELF-MODIFY (Maestro modifie son propre code via claude CLI) ===
+// === SELF-MODIFY ===
 app.post("/api/self-modify", (req, res) => {
   const { prompt } = req.body
   if (!prompt) return res.status(400).json({ error: "prompt required" })
-
   console.log(`[SELF-MODIFY ${new Date().toISOString()}] "${prompt.slice(0, 80)}..."`)
-
-  // Direct execution via claude CLI
-
   const result = spawnSync(
-    "claude",
-    ["-p", prompt, "--output-format", "text"],
+    "claude", ["-p", prompt, "--output-format", "text"],
     { cwd: "/root/maestro", timeout: 180000, encoding: "utf8", env: { ...process.env, HOME: "/root" } }
   )
-
-  // No temp file needed
-
   if (result.error) return res.json({ success: false, error: result.error.message })
   if (result.status !== 0) return res.json({ success: false, error: result.stderr || "Échec", output: result.stdout })
-
   console.log(`[SELF-MODIFY] Done: ${result.stdout.slice(0, 150)}`)
   res.json({ success: true, output: result.stdout })
 })
 
-// === FILES API (lecture/écriture CLAUDE.md, MAESTRO.md, etc.) ===
+// === FILES API ===
 const ALLOWED_FILES: Record<string, string> = {
   "claude": "/root/maestro/CLAUDE.md",
   "maestro": "/root/maestro/MAESTRO.md",
@@ -208,255 +208,29 @@ app.put("/api/files/:name", (req, res) => {
   }
 })
 
-// === SKILLS SYSTEM ===
-const SKILLS_DIR = "/root/maestro/skills"
+// === BOOT ===
+async function boot() {
+  // Register all plugins
+  await registerPlugin(cronsPlugin, app)
+  await registerPlugin(skillsPlugin, app)
+  await registerPlugin(telegramPlugin, app)
 
-// Ensure skills directory exists
-if (!existsSync(SKILLS_DIR)) mkdirSync(SKILLS_DIR, { recursive: true })
-
-// Parse SKILL.md frontmatter
-function parseSkillMd(content: string) {
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/)
-  if (!fmMatch) return { name: "", description: "", body: content }
-  const fm = fmMatch[1]
-  const body = fmMatch[2]
-  const nameMatch = fm.match(/name:\s*(.+)/)
-  const descMatch = fm.match(/description:\s*"?(.+?)"?\s*$/)
-  return {
-    name: nameMatch ? nameMatch[1].trim() : "",
-    description: descMatch ? descMatch[1].trim() : "",
-    body: body.trim(),
-  }
-}
-
-// List all skills (name + description only for routing)
-app.get("/api/skills", (_, res) => {
-  try {
-    const dirs = readdirSync(SKILLS_DIR, { withFileTypes: true }).filter(d => d.isDirectory())
-    const skills = dirs.map(d => {
-      const skillPath = join(SKILLS_DIR, d.name, "SKILL.md")
-      if (!existsSync(skillPath)) return null
-      const content = readFileSync(skillPath, "utf-8")
-      const parsed = parseSkillMd(content)
-      return { id: d.name, name: parsed.name || d.name, description: parsed.description }
-    }).filter(Boolean)
-    res.json({ skills })
-  } catch (e) {
-    res.status(500).json({ error: String(e) })
-  }
-})
-
-// Get full skill content
-app.get("/api/skills/:id", (req, res) => {
-  const skillPath = join(SKILLS_DIR, req.params.id, "SKILL.md")
-  if (!existsSync(skillPath)) return res.status(404).json({ error: "Skill not found" })
-  try {
-    const content = readFileSync(skillPath, "utf-8")
-    const parsed = parseSkillMd(content)
-    res.json({ id: req.params.id, ...parsed, raw: content })
-  } catch (e) {
-    res.status(500).json({ error: String(e) })
-  }
-})
-
-// Create or update a skill
-app.put("/api/skills/:id", (req, res) => {
-  const { content } = req.body
-  if (!content) return res.status(400).json({ error: "content required" })
-  const skillDir = join(SKILLS_DIR, req.params.id)
-  try {
-    if (!existsSync(skillDir)) mkdirSync(skillDir, { recursive: true })
-    writeFileSync(join(skillDir, "SKILL.md"), content, "utf-8")
-    execSync(`cd /root/maestro && git add skills/ && git commit -m "skill: update ${req.params.id}" && git push origin main`, { encoding: "utf8" })
-    res.json({ ok: true })
-  } catch (e) {
-    res.status(500).json({ error: String(e) })
-  }
-})
-
-// Delete a skill
-app.delete("/api/skills/:id", (req, res) => {
-  const skillDir = join(SKILLS_DIR, req.params.id)
-  if (!existsSync(skillDir)) return res.status(404).json({ error: "Skill not found" })
-  try {
-    rmSync(skillDir, { recursive: true })
-    execSync(`cd /root/maestro && git add -A && git commit -m "skill: delete ${req.params.id}" && git push origin main`, { encoding: "utf8" })
-    res.json({ ok: true })
-  } catch (e) {
-    res.status(500).json({ error: String(e) })
-  }
-})
-
-// Get all skill descriptions (for injection into chat context)
-app.get("/api/skills/context/descriptions", (_, res) => {
-  try {
-    const dirs = readdirSync(SKILLS_DIR, { withFileTypes: true }).filter(d => d.isDirectory())
-    const descriptions = dirs.map(d => {
-      const skillPath = join(SKILLS_DIR, d.name, "SKILL.md")
-      if (!existsSync(skillPath)) return null
-      const content = readFileSync(skillPath, "utf-8")
-      const parsed = parseSkillMd(content)
-      return `[${d.name}] ${parsed.description}`
-    }).filter(Boolean)
-    res.json({ descriptions })
-  } catch (e) {
-    res.status(500).json({ error: String(e) })
-  }
-})
-
-// === CRONS SYSTEM (file-based persistence) ===
-const CRONS_FILE = "/root/maestro/crons.json"
-
-type CronEntry = {
-  id: string; name: string; schedule: string; description: string; active: boolean;
-  lastRun?: string; lastStatus?: string; lastOutput?: string
-}
-
-function loadCronsData(): CronEntry[] {
-  if (!existsSync(CRONS_FILE)) {
-    // Initialize with defaults
-    const defaults: CronEntry[] = [
-      { id: "heartbeat", name: "Heartbeat", schedule: "*/5 * * * *", description: "Vérifie que Maestro est en vie, log l'état", active: true },
-      { id: "selfheal", name: "Self-heal", schedule: "*/30 * * * *", description: "Auto-réparation et vérification des services", active: true },
-      { id: "backup", name: "Backup quotidien", schedule: "0 3 * * *", description: "Sauvegarde CLAUDE.md, MAESTRO.md, GOALS.md", active: true },
-      { id: "email", name: "Check emails", schedule: "*/30 * * * *", description: "Vérifie les missions email actives", active: true },
-      { id: "monday", name: "Check Monday", schedule: "0 * * * *", description: "Vérifie les missions équipe/Monday actives", active: true },
-      { id: "briefing", name: "Briefing matin", schedule: "0 6 * * *", description: "Génère le briefing matinal à 7h Paris", active: true },
-    ]
-    writeFileSync(CRONS_FILE, JSON.stringify(defaults, null, 2), "utf-8")
-    return defaults
-  }
-  return JSON.parse(readFileSync(CRONS_FILE, "utf-8"))
-}
-
-function saveCronsData(data: CronEntry[]) {
-  writeFileSync(CRONS_FILE, JSON.stringify(data, null, 2), "utf-8")
-}
-
-function updateCronLastRun(id: string, status: string, output?: string) {
-  const data = loadCronsData()
-  const entry = data.find(c => c.id === id)
-  if (entry) {
-    entry.lastRun = new Date().toISOString()
-    entry.lastStatus = status
-    if (output) entry.lastOutput = output.slice(0, 500)
-    saveCronsData(data)
-  }
-}
-
-// List crons
-app.get("/api/crons", (_, res) => {
-  res.json({ crons: loadCronsData() })
-})
-
-// Update a cron (toggle active, change schedule, etc.)
-app.patch("/api/crons/:id", (req, res) => {
-  const data = loadCronsData()
-  const entry = data.find(c => c.id === req.params.id)
-  if (!entry) return res.status(404).json({ error: "Cron not found" })
-  const { active, schedule, description, name } = req.body
-  if (typeof active === "boolean") entry.active = active
-  if (schedule) entry.schedule = schedule
-  if (description) entry.description = description
-  if (name) entry.name = name
-  saveCronsData(data)
-  fire(EVENTS.CRON_UPDATED, { cron: entry })
-  res.json({ ok: true, cron: entry })
-})
-
-// Create a new cron
-app.post("/api/crons", (req, res) => {
-  const { id, name, schedule, description } = req.body
-  if (!id || !name || !schedule) return res.status(400).json({ error: "id, name, schedule required" })
-  const data = loadCronsData()
-  if (data.find(c => c.id === id)) return res.status(409).json({ error: "Cron already exists" })
-  data.push({ id, name, schedule, description: description || "", active: true })
-  saveCronsData(data)
-  res.json({ ok: true })
-})
-
-// Delete a cron
-app.delete("/api/crons/:id", (req, res) => {
-  let data = loadCronsData()
-  data = data.filter(c => c.id !== req.params.id)
-  saveCronsData(data)
-  res.json({ ok: true })
-})
-
-// === CRON JOBS ===
-
-function isCronActive(id: string): boolean {
-  const data = loadCronsData()
-  const c = data.find(cr => cr.id === id)
-  return c?.active ?? false
-}
-
-// Heartbeat — every 5 minutes
-cron.schedule("*/5 * * * *", () => {
-  if (!isCronActive("heartbeat")) return
-  const result = runHeartbeat()
-  updateCronLastRun("heartbeat", "ok", JSON.stringify(result).slice(0, 200))
-  fire(EVENTS.HEARTBEAT, { ...result, wsClients: getConnectedClients() })
-})
-
-// Self-heal — every 30 minutes
-cron.schedule("*/30 * * * *", () => {
-  if (!isCronActive("selfheal")) return
-  selfHeal()
-  updateCronLastRun("selfheal", "ok")
-  fire(EVENTS.SELF_HEAL, { time: new Date().toISOString() })
-})
-
-// Daily backup — every day at 3 AM
-cron.schedule("0 3 * * *", () => {
-  if (!isCronActive("backup")) return
-  console.log("[CRON] Daily backup")
-  createBackup()
-  updateCronLastRun("backup", "ok")
-})
-
-// Email check — every 30 minutes
-cron.schedule("*/30 * * * *", () => {
-  if (!isCronActive("email")) return
-  const emailMissions = getMissions().filter(m => m.name.toLowerCase().includes("email") && m.status === "active")
-  updateCronLastRun("email", "ok", `${emailMissions.length} missions email actives`)
-})
-
-// Monday check — every hour
-cron.schedule("0 * * * *", () => {
-  if (!isCronActive("monday")) return
-  const equipeMissions = getMissions().filter(m => (m.name.toLowerCase().includes("equipe") || m.name.toLowerCase().includes("monday")) && m.status === "active")
-  updateCronLastRun("monday", "ok", `${equipeMissions.length} missions équipe actives`)
-})
-
-// Morning briefing — 7 AM Paris time (6 AM UTC in winter, 5 AM UTC in summer)
-cron.schedule("0 6 * * *", () => {
-  if (!isCronActive("briefing")) return
-  console.log("[CRON] Morning briefing generation")
-  updateCronLastRun("briefing", "ok", "Briefing généré")
-})
-
-server.listen(PORT, () => {
-  // Initial heartbeat
-  const heartbeat = runHeartbeat()
-  
-  // Initial backup
-  createBackup()
-
-  // Start Telegram bot
-  startTelegramBot()
-
-  console.log(`
-🎯 Maestro Core running on port ${PORT}
-💓 Heartbeat: every 5 minutes
-🛡️ Self-heal: every 30 minutes
-💾 Backup: daily at 3 AM
-📧 Email check: every 30 minutes
-📊 Monday check: every hour
-☀️ Morning briefing: 7 AM Paris
+  server.listen(PORT, () => {
+    const heartbeat = runHeartbeat()
+    console.log(`
+🎯 Maestro Core v2 — Plugin Architecture
+📡 WebSocket Gateway on /ws
+🔌 Plugins: ${getPlugins().map(p => p.name).join(", ")}
+⏱️  Uptime: ${new Date().toISOString()}
 
 ${getSelfAwareness()}
 
 🤖 Maestro is ALIVE.
-  `)
+    `)
+  })
+}
+
+boot().catch(e => {
+  console.error("Boot failed:", e)
+  process.exit(1)
 })
