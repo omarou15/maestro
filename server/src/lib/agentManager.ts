@@ -129,3 +129,62 @@ export function getActivityLog(): MissionLog[] {
   Array.from(missions.values()).forEach(m => logs.push(...m.log))
   return logs.sort((a, b) => b.time.localeCompare(a.time)).slice(0, 50)
 }
+
+// Run all agents of a mission in parallel with the same task
+export async function runMissionParallel(missionId: string, task: string): Promise<{ agentId: string; name: string; result: string; status: AgentStatus }[]> {
+  const mission = missions.get(missionId)
+  if (!mission) throw new Error("Mission not found")
+
+  mission.phase = "Exécution parallèle"
+  mission.updatedAt = new Date().toISOString()
+  mission.log.push({ time: now(), agentId: "maestro", agentIcon: "🎯", text: `Lancement parallèle: ${mission.agents.length} agents sur "${task.slice(0, 60)}"`, type: "info" })
+
+  const results = await Promise.allSettled(
+    mission.agents.map(async (agent) => {
+      const result = await runAgent(agent, task)
+      mission.log.push({
+        time: now(), agentId: agent.id, agentIcon: agent.icon,
+        text: `${agent.name}: ${result.slice(0, 100)}`,
+        type: agent.status === "error" ? "alert" : "done",
+      })
+      return { agentId: agent.id, name: agent.name, result, status: agent.status }
+    })
+  )
+
+  const completed = results.map((r, i) => {
+    if (r.status === "fulfilled") return r.value
+    return { agentId: mission.agents[i].id, name: mission.agents[i].name, result: `Erreur: ${r.reason}`, status: "error" as AgentStatus }
+  })
+
+  // Update mission progress
+  const doneCount = completed.filter(r => r.status === "done").length
+  mission.progress = Math.round((doneCount / mission.agents.length) * 100)
+  if (mission.progress === 100) {
+    mission.phase = "Terminée"
+    mission.status = "completed"
+  }
+  mission.updatedAt = new Date().toISOString()
+
+  return completed
+}
+
+// Run specific agents in parallel (by agent IDs)
+export async function runAgentsParallel(missionId: string, agentIds: string[], task: string): Promise<{ agentId: string; name: string; result: string; status: AgentStatus }[]> {
+  const mission = missions.get(missionId)
+  if (!mission) throw new Error("Mission not found")
+
+  const agents = mission.agents.filter(a => agentIds.includes(a.id))
+  if (agents.length === 0) throw new Error("No matching agents")
+
+  const results = await Promise.allSettled(
+    agents.map(async (agent) => {
+      const result = await runAgent(agent, task)
+      return { agentId: agent.id, name: agent.name, result, status: agent.status }
+    })
+  )
+
+  return results.map((r, i) => {
+    if (r.status === "fulfilled") return r.value
+    return { agentId: agents[i].id, name: agents[i].name, result: `Erreur: ${r.reason}`, status: "error" as AgentStatus }
+  })
+}

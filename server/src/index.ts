@@ -5,7 +5,7 @@ import { createServer } from "http"
 import { spawnSync } from "child_process"
 import { writeFileSync, readFileSync, existsSync } from "fs"
 import { execSync } from "child_process"
-import { createMission, getMissions, getMission, deleteMission, getApprovals, addApproval, resolveApproval, orchestrate, runAgent, getActivityLog } from "./lib/agentManager.js"
+import { createMission, getMissions, getMission, deleteMission, getApprovals, addApproval, resolveApproval, orchestrate, runAgent, runMissionParallel, runAgentsParallel, getActivityLog } from "./lib/agentManager.js"
 import { runHeartbeat, getSelfAwareness } from "./crons/heartbeat.js"
 import { checkGitStatus } from "./crons/resilience.js"
 import { initGateway, getConnectedClients } from "./gateway.js"
@@ -111,6 +111,31 @@ app.post("/api/agents/:agentId/run", async (req, res) => {
     res.json({ result, agent: { id: agent.id, name: agent.name, status: agent.status, lastAction: agent.lastAction } })
   } catch (e) {
     res.status(500).json({ error: `Agent failed: ${e}` })
+  }
+})
+
+// === PARALLEL EXECUTION ===
+app.post("/api/missions/:id/run", async (req, res) => {
+  try {
+    const { task } = req.body
+    if (!task) return res.status(400).json({ error: "task required" })
+    fire(EVENTS.ACTIVITY, { text: `Lancement parallèle mission ${req.params.id}`, type: "auto" })
+    const results = await runMissionParallel(req.params.id, task)
+    fire(EVENTS.MISSION_UPDATED, { id: req.params.id, results: results.length })
+    res.json({ results })
+  } catch (e) {
+    res.status(500).json({ error: String(e) })
+  }
+})
+
+app.post("/api/missions/:id/run-agents", async (req, res) => {
+  try {
+    const { agentIds, task } = req.body
+    if (!task || !agentIds?.length) return res.status(400).json({ error: "task and agentIds required" })
+    const results = await runAgentsParallel(req.params.id, agentIds, task)
+    res.json({ results })
+  } catch (e) {
+    res.status(500).json({ error: String(e) })
   }
 })
 
