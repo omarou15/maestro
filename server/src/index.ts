@@ -2,6 +2,10 @@ import express from "express"
 import cors from "cors"
 import cron from "node-cron"
 import dotenv from "dotenv"
+import { spawnSync } from "child_process"
+import { writeFileSync, unlinkSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 import { createMission, getMissions, getMission, deleteMission, getApprovals, addApproval, resolveApproval, orchestrate, runAgent, getActivityLog } from "./lib/agentManager.js"
 import { runHeartbeat, getSelfAwareness } from "./crons/heartbeat.js"
 import { selfHeal, createBackup, checkGitStatus } from "./crons/resilience.js"
@@ -106,6 +110,41 @@ app.post("/api/approvals/:id/resolve", (req, res) => {
 // === ACTIVITY LOG ===
 app.get("/api/activity", (_, res) => {
   res.json({ log: getActivityLog() })
+})
+
+// === RESTART (répond avant de redémarrer) ===
+app.post("/api/restart", (_, res) => {
+  res.json({ ok: true, message: "Redémarrage dans 1 seconde..." })
+  setTimeout(() => {
+    spawnSync("sudo", ["/bin/systemctl", "restart", "maestro-core"], { encoding: "utf8" })
+  }, 1000)
+})
+
+// === SELF-MODIFY (Maestro modifie son propre code via claude CLI) ===
+app.post("/api/self-modify", (req, res) => {
+  const { prompt } = req.body
+  if (!prompt) return res.status(400).json({ error: "prompt required" })
+
+  console.log(`[SELF-MODIFY ${new Date().toISOString()}] "${prompt.slice(0, 80)}..."`)
+
+  const tmpFile = join(tmpdir(), `maestro-${Date.now()}.txt`)
+  try { writeFileSync(tmpFile, prompt) } catch (e) {
+    return res.json({ success: false, error: `Fichier tmp impossible: ${e}` })
+  }
+
+  const result = spawnSync(
+    "sudo",
+    ["-u", "maestro-cli", "/usr/local/bin/maestro-modify", tmpFile],
+    { cwd: "/root/maestro", timeout: 180000, encoding: "utf8" }
+  )
+
+  try { unlinkSync(tmpFile) } catch { /* ignore */ }
+
+  if (result.error) return res.json({ success: false, error: result.error.message })
+  if (result.status !== 0) return res.json({ success: false, error: result.stderr || "Échec", output: result.stdout })
+
+  console.log(`[SELF-MODIFY] Done: ${result.stdout.slice(0, 150)}`)
+  res.json({ success: true, output: result.stdout })
 })
 
 // === CRON JOBS ===
