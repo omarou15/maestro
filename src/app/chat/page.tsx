@@ -200,6 +200,15 @@ export default function ChatPage() {
         if (shouldCompact(updated)) showToastMsg("💡 Conversation longue — pense à compacter (bouton 📦)")
         return updated
       })
+
+      // Extraction mémoire silencieuse en background
+      fetch("/api/memory/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userMessage: msgText, assistantMessage: assistantMsg.text }),
+      }).then(r => r.json()).then(d => {
+        if (d.count > 0) showToastMsg(`🧠 ${d.count} souvenir${d.count > 1 ? "s" : ""} capturé${d.count > 1 ? "s" : ""}`)
+      }).catch(() => {})
     } catch (e: unknown) {
       stopThink()
       if (e instanceof Error && e.name !== "AbortError") {

@@ -38,11 +38,13 @@ export async function initKnowledgeSchema() {
       tags JSONB NOT NULL DEFAULT '[]'::jsonb,
       source TEXT NOT NULL DEFAULT 'Manuel',
       importance TEXT NOT NULL DEFAULT 'moyenne',
+      score INTEGER NOT NULL DEFAULT 5,
       linked_to JSONB NOT NULL DEFAULT '[]'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `
+  await sql`ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS score INTEGER NOT NULL DEFAULT 5`
   await sql`
     CREATE INDEX IF NOT EXISTS idx_knowledge_user_id
     ON knowledge_items(user_id, updated_at DESC)

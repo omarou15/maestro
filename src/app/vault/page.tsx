@@ -5,6 +5,9 @@ import { UserButton } from "@clerk/nextjs"
 import MaestroLogo from "@/components/MaestroLogo"
 import NavBar from "@/components/NavBar"
 
+type CronItem = { id: string; name: string; schedule: string; description: string; active: boolean }
+type HeartbeatData = { backend: { ok: boolean; uptime: number | null; missions: number | null; startedAt: string | null }; db: { ok: boolean }; vercel: { ok: boolean }; checkedAt: string }
+
 type VaultItem = {
   id: number
   category: string
@@ -50,7 +53,14 @@ const EMPTY_FORM: FormState = { category: "services", name: "", icon: "🔑", ty
 export default function VaultPage() {
   const [items, setItems] = useState<VaultItem[]>([])
   const [filter, setFilter] = useState("all")
-  const [activeTab, setActiveTab] = useState<"coffre" | "regles" | "modeles">("coffre")
+  const [activeTab, setActiveTab] = useState<"coffre" | "regles" | "modeles" | "core">("coffre")
+  // Core state
+  const [coreSubTab, setCoreSubTab] = useState<"claude" | "maestro" | "crons" | "heartbeat">("claude")
+  const [fileContent, setFileContent] = useState<Record<string, string>>({})
+  const [fileSaving, setFileSaving] = useState(false)
+  const [crons, setCrons] = useState<CronItem[]>([])
+  const [heartbeat, setHeartbeat] = useState<HeartbeatData | null>(null)
+  const [coreLoading, setCoreLoading] = useState(false)
   const [revealedValues, setRevealedValues] = useState<Record<number, string>>({})
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -71,6 +81,49 @@ export default function VaultPage() {
   }, [])
 
   useEffect(() => { loadItems() }, [loadItems])
+
+  const loadCoreFile = useCallback(async (name: string) => {
+    if (fileContent[name]) return
+    setCoreLoading(true)
+    try {
+      const res = await fetch(`/api/core/files?name=${name}`)
+      const data = await res.json()
+      setFileContent(p => ({ ...p, [name]: data.content || "" }))
+    } finally { setCoreLoading(false) }
+  }, [fileContent])
+
+  const loadCrons = useCallback(async () => {
+    if (crons.length > 0) return
+    const res = await fetch("/api/core/crons")
+    const data = await res.json()
+    setCrons(data.crons || [])
+  }, [crons.length])
+
+  const loadHeartbeat = useCallback(async () => {
+    const res = await fetch("/api/core/heartbeat")
+    setHeartbeat(await res.json())
+  }, [])
+
+  useEffect(() => {
+    if (activeTab !== "core") return
+    if (coreSubTab === "claude") loadCoreFile("claude")
+    if (coreSubTab === "maestro") loadCoreFile("maestro")
+    if (coreSubTab === "crons") loadCrons()
+    if (coreSubTab === "heartbeat") loadHeartbeat()
+  }, [activeTab, coreSubTab, loadCoreFile, loadCrons, loadHeartbeat])
+
+  const saveFile = async (name: string) => {
+    setFileSaving(true)
+    try {
+      await fetch("/api/core/files", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, content: fileContent[name] }),
+      })
+      showToast("✅ Sauvegardé et pushé sur GitHub")
+    } catch { showToast("⚠️ Erreur de sauvegarde") }
+    setFileSaving(false)
+  }
 
   const filtered = filter === "all" ? items : items.filter(v => v.category === filter)
 
@@ -212,13 +265,14 @@ export default function VaultPage() {
           { key: "coffre" as const, label: "🔑 Coffre-fort", count: items.length },
           { key: "regles" as const, label: "⚡ Autonomie", count: RULES.length },
           { key: "modeles" as const, label: "🧠 Modèles IA", count: MODEL_CONFIGS.length },
+          { key: "core" as const, label: "⚙️ Core", count: null },
         ]).map(t => (
           <button key={t.key} onClick={() => setActiveTab(t.key)}
             className={`px-3.5 py-2 rounded-xl text-[12px] font-semibold flex items-center gap-1.5 transition-colors ${
               activeTab === t.key ? "bg-[var(--maestro-primary)] text-white" : "bg-[var(--maestro-surface)] text-[var(--maestro-muted)]"
             }`}>
             {t.label}
-            <span className={`text-[10px] font-bold font-mono px-1.5 rounded-md ${activeTab === t.key ? "bg-white/20" : "bg-[var(--maestro-border)]"}`}>{t.count}</span>
+            {t.count !== null && <span className={`text-[10px] font-bold font-mono px-1.5 rounded-md ${activeTab === t.key ? "bg-white/20" : "bg-[var(--maestro-border)]"}`}>{t.count}</span>}
           </button>
         ))}
       </div>
@@ -348,6 +402,125 @@ export default function VaultPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+        {/* CORE */}
+        {activeTab === "core" && (
+          <div>
+            {/* Sub-tabs */}
+            <div className="flex gap-1.5 mb-4 flex-wrap">
+              {([
+                { key: "claude" as const, label: "CLAUDE.md", icon: "📋" },
+                { key: "maestro" as const, label: "MAESTRO.md", icon: "🎯" },
+                { key: "crons" as const, label: "Crons", icon: "⏰" },
+                { key: "heartbeat" as const, label: "Heartbeat", icon: "💓" },
+              ]).map(t => (
+                <button key={t.key} onClick={() => setCoreSubTab(t.key)}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors ${
+                    coreSubTab === t.key
+                      ? "border-[var(--maestro-accent)] bg-[var(--maestro-accent-bg)] text-[var(--maestro-accent)]"
+                      : "border-[var(--maestro-border)] bg-white text-[var(--maestro-muted)]"
+                  }`}>
+                  {t.icon} {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* CLAUDE.md / MAESTRO.md editors */}
+            {(coreSubTab === "claude" || coreSubTab === "maestro") && (
+              <div className="flex flex-col gap-3">
+                <div className="bg-amber-50 rounded-xl p-3 border border-amber-200 text-[12px] text-amber-800">
+                  ⚠️ Modifications directes sur le serveur + git push automatique. Maestro se comportera différemment après sauvegarde.
+                </div>
+                {coreLoading ? (
+                  <div className="text-center py-8 text-[var(--maestro-muted)] text-[13px]">Chargement depuis Hetzner...</div>
+                ) : (
+                  <>
+                    <textarea
+                      value={fileContent[coreSubTab] || ""}
+                      onChange={e => setFileContent(p => ({ ...p, [coreSubTab]: e.target.value }))}
+                      className="w-full border border-[var(--maestro-border)] rounded-xl p-3.5 text-[12px] font-mono outline-none focus:border-[var(--maestro-accent)] resize-none bg-white text-[var(--maestro-primary)]"
+                      rows={20}
+                      placeholder="Chargement..."
+                    />
+                    <button onClick={() => saveFile(coreSubTab)} disabled={fileSaving}
+                      className="bg-[var(--maestro-primary)] text-white rounded-xl py-3 text-[13px] font-semibold disabled:opacity-50">
+                      {fileSaving ? "⏳ Sauvegarde + git push..." : "💾 Sauvegarder & Déployer"}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* CRONS */}
+            {coreSubTab === "crons" && (
+              <div className="flex flex-col gap-2.5">
+                <div className="bg-blue-50 rounded-xl p-3.5 border border-blue-200 mb-1 text-[12px] text-blue-800">
+                  ⏰ Tâches planifiées tournant sur le serveur Hetzner 24/7
+                </div>
+                {crons.length === 0 ? (
+                  <div className="text-center py-8 text-[var(--maestro-muted)] text-[13px]">Chargement des crons...</div>
+                ) : crons.map(cron => (
+                  <div key={cron.id} className="bg-white rounded-2xl p-4 border border-[var(--maestro-border)] flex items-center gap-3.5">
+                    <div className="w-10 h-10 rounded-xl bg-[var(--maestro-surface)] flex items-center justify-center text-lg shrink-0">⏰</div>
+                    <div className="flex-1">
+                      <div className="text-[13px] font-semibold text-[var(--maestro-primary)] mb-0.5">{cron.name}</div>
+                      <div className="text-[11px] text-[var(--maestro-muted)] mb-1">{cron.description}</div>
+                      <code className="text-[10px] font-mono bg-[var(--maestro-surface)] px-2 py-0.5 rounded text-[var(--maestro-accent)]">{cron.schedule}</code>
+                    </div>
+                    <div className={`text-[10px] font-bold font-mono px-2 py-1 rounded-lg ${cron.active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                      {cron.active ? "ACTIF" : "INACTIF"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* HEARTBEAT */}
+            {coreSubTab === "heartbeat" && (
+              <div className="flex flex-col gap-3">
+                <div className="flex justify-between items-center mb-1">
+                  <div className="text-[12px] text-[var(--maestro-muted)]">
+                    {heartbeat ? `Vérifié à ${new Date(heartbeat.checkedAt).toLocaleTimeString("fr-FR")}` : ""}
+                  </div>
+                  <button onClick={loadHeartbeat} className="text-[11px] text-[var(--maestro-accent)] font-semibold">↺ Actualiser</button>
+                </div>
+                {!heartbeat ? (
+                  <div className="text-center py-8 text-[var(--maestro-muted)] text-[13px]">Vérification...</div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2.5">
+                    {[
+                      {
+                        name: "Backend Hetzner", icon: "🖥️",
+                        ok: heartbeat.backend.ok,
+                        detail: heartbeat.backend.ok
+                          ? `En ligne · ${heartbeat.backend.uptime}min uptime · ${heartbeat.backend.missions} missions`
+                          : "Hors ligne",
+                      },
+                      {
+                        name: "Base de données Neon", icon: "🗄️",
+                        ok: heartbeat.db.ok,
+                        detail: heartbeat.db.ok ? "Connectée · PostgreSQL" : "Erreur de connexion",
+                      },
+                      {
+                        name: "Frontend Vercel", icon: "▲",
+                        ok: heartbeat.vercel.ok,
+                        detail: "En ligne · Auto-deploy actif",
+                      },
+                    ].map((s, i) => (
+                      <div key={i} className="bg-white rounded-2xl p-4 border border-[var(--maestro-border)] flex items-center gap-3.5">
+                        <div className="w-10 h-10 rounded-xl bg-[var(--maestro-surface)] flex items-center justify-center text-xl shrink-0">{s.icon}</div>
+                        <div className="flex-1">
+                          <div className="text-[13px] font-semibold text-[var(--maestro-primary)]">{s.name}</div>
+                          <div className="text-[11px] text-[var(--maestro-muted)]">{s.detail}</div>
+                        </div>
+                        <div className={`w-3 h-3 rounded-full shrink-0 ${s.ok ? "bg-green-500" : "bg-red-500"}`} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

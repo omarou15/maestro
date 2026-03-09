@@ -1,10 +1,45 @@
 import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@clerk/nextjs/server"
+import { getDb } from "@/lib/db"
 
 export const maxDuration = 300 // 5 min — nécessaire pour les auto-modifications
 
 const BACKEND = "http://178.156.251.108:4000"
 
-function getSystemPrompt(compactionContext?: string) {
+// Router mémoire : Haiku décide si le message nécessite du contexte personnel
+async function needsMemoryContext(apiKey: string, userMessage: string): Promise<boolean> {
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 5,
+        messages: [{ role: "user", content: `Ce message nécessite-t-il des informations personnelles sur l'utilisateur (préférences, clients, équipe, décisions passées) pour être bien répondu ? Réponds uniquement OUI ou NON.\n\nMessage: "${userMessage.slice(0, 300)}"` }],
+      }),
+      signal: AbortSignal.timeout(3000),
+    })
+    const data = await res.json() as { content: { text: string }[] }
+    return data.content?.[0]?.text?.trim().toUpperCase().startsWith("OUI") ?? false
+  } catch { return false }
+}
+
+async function getMemoryContext(userId: string): Promise<string> {
+  try {
+    const sql = getDb()
+    const rows = await sql`
+      SELECT title, content, type, score FROM knowledge_items
+      WHERE user_id = ${userId} AND score >= 5
+      ORDER BY score DESC, updated_at DESC
+      LIMIT 15
+    `
+    if (rows.length === 0) return ""
+    const lines = rows.map(r => `[${r.type}] ${r.title}: ${r.content}`).join("\n")
+    return `\nMÉMOIRE PERSONNELLE (contexte utilisateur) :\n${lines}`
+  } catch { return "" }
+}
+
+function getSystemPrompt(compactionContext?: string, memoryContext?: string) {
   const now = new Date()
   const dateStr = now.toLocaleDateString("fr-FR", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
@@ -54,6 +89,10 @@ Quand on demande une interface/composant :
 1. Bref résumé (2-3 lignes)
 2. HTML complet entre <artifact title="Titre"> et </artifact>
 3. JAMAIS de backticks markdown`
+
+  if (memoryContext) {
+    prompt += `\n\n${memoryContext}`
+  }
 
   if (compactionContext) {
     prompt += `\n\n${compactionContext}`
@@ -168,6 +207,7 @@ async function executeTool(name: string, input: any): Promise<string> {
 
 export async function POST(req: NextRequest) {
   try {
+    const { userId } = await auth()
     const { messages, compactionContext } = await req.json()
 
     const apiKey = process.env.ANTHROPIC_API_KEY
@@ -175,7 +215,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "API key not configured" }, { status: 500 })
     }
 
-    const systemPrompt = getSystemPrompt(compactionContext || undefined)
+    // Router mémoire intelligent
+    const lastUserMsg = [...messages].reverse().find((m: { role: string }) => m.role === "user")?.content || ""
+    let memoryContext = ""
+    if (userId && lastUserMsg) {
+      const needs = await needsMemoryContext(apiKey, lastUserMsg)
+      if (needs) memoryContext = await getMemoryContext(userId)
+    }
+
+    const systemPrompt = getSystemPrompt(compactionContext || undefined, memoryContext || undefined)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let currentMessages: any[] = messages.map((m: { role: string; content: string }) => ({

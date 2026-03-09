@@ -3,7 +3,8 @@ import cors from "cors"
 import cron from "node-cron"
 import dotenv from "dotenv"
 import { spawnSync } from "child_process"
-import { writeFileSync, unlinkSync } from "fs"
+import { writeFileSync, unlinkSync, readFileSync, existsSync } from "fs"
+import { execSync } from "child_process"
 import { tmpdir } from "os"
 import { join } from "path"
 import { createMission, getMissions, getMission, deleteMission, getApprovals, addApproval, resolveApproval, orchestrate, runAgent, getActivityLog } from "./lib/agentManager.js"
@@ -145,6 +146,51 @@ app.post("/api/self-modify", (req, res) => {
 
   console.log(`[SELF-MODIFY] Done: ${result.stdout.slice(0, 150)}`)
   res.json({ success: true, output: result.stdout })
+})
+
+// === FILES API (lecture/écriture CLAUDE.md, MAESTRO.md, etc.) ===
+const ALLOWED_FILES: Record<string, string> = {
+  "claude": "/root/maestro/CLAUDE.md",
+  "maestro": "/root/maestro/MAESTRO.md",
+  "goals": "/root/maestro/GOALS.md",
+  "learnings": "/root/maestro/LEARNINGS.md",
+}
+
+app.get("/api/files/:name", (req, res) => {
+  const path = ALLOWED_FILES[req.params.name]
+  if (!path) return res.status(404).json({ error: "Fichier non autorisé" })
+  try {
+    const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
+    res.json({ content })
+  } catch (e) {
+    res.status(500).json({ error: String(e) })
+  }
+})
+
+app.put("/api/files/:name", (req, res) => {
+  const path = ALLOWED_FILES[req.params.name]
+  if (!path) return res.status(404).json({ error: "Fichier non autorisé" })
+  const { content } = req.body
+  if (typeof content !== "string") return res.status(400).json({ error: "content requis" })
+  try {
+    writeFileSync(path, content, "utf-8")
+    execSync(`cd /root/maestro && git add ${path} && git commit -m "update ${req.params.name}.md via Maestro Core" && git push origin main`, { encoding: "utf8" })
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(500).json({ error: String(e) })
+  }
+})
+
+// === CRONS LIST ===
+app.get("/api/crons", (_, res) => {
+  res.json({ crons: [
+    { id: "heartbeat", name: "Heartbeat", schedule: "*/5 * * * *", description: "Vérifie que Maestro est en vie, log l'état", active: true },
+    { id: "selfheal", name: "Self-heal", schedule: "*/30 * * * *", description: "Auto-réparation et vérification des services", active: true },
+    { id: "backup", name: "Backup quotidien", schedule: "0 3 * * *", description: "Sauvegarde CLAUDE.md, MAESTRO.md, GOALS.md", active: true },
+    { id: "email", name: "Check emails", schedule: "*/30 * * * *", description: "Vérifie les missions email actives", active: true },
+    { id: "monday", name: "Check Monday", schedule: "0 * * * *", description: "Vérifie les missions équipe/Monday actives", active: true },
+    { id: "briefing", name: "Briefing matin", schedule: "0 6 * * *", description: "Génère le briefing matinal à 7h Paris", active: true },
+  ]})
 })
 
 // === CRON JOBS ===
