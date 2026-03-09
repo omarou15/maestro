@@ -126,6 +126,6 @@ Réponds en JSON : {"response":"texte FR","createMission":null|{"name":"","type"
 
 export function getActivityLog(): MissionLog[] {
   const logs: MissionLog[] = []
-  for (const m of missions.values()) logs.push(...m.log)
+  Array.from(missions.values()).forEach(m => logs.push(...m.log))
   return logs.sort((a, b) => b.time.localeCompare(a.time)).slice(0, 50)
 }

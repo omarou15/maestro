@@ -1,59 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Header from "@/components/Header"
 import NavBar from "@/components/NavBar"
 
-type Agent = { name: string; icon: string; status: "done" | "active" | "waiting" | "idle"; task: string }
-type Mission = { id: number; name: string; icon: string; color: string; status: string; progress: number; phase: string; startedAt: string; agents: Agent[] }
-type Approval = { id: number; mission: string; agent: string; icon: string; action: string; reason: string; priority: "haute" | "moyenne" | "basse"; time: string }
+type AgentStatus = "done" | "active" | "waiting" | "idle"
+type Agent = { name: string; icon: string; status: AgentStatus; task: string }
+type Mission = { id: string; name: string; icon: string; color: string; status: string; progress: number; phase: string; startedAt: string; agents: Agent[] }
+type Approval = { id: string; mission: string; agent: string; icon: string; action: string; reason: string; priority: "haute" | "moyenne" | "basse"; time: string }
 type Activity = { time: string; agent: string; text: string; type: "pending" | "auto" | "alert" | "done" | "info" | "approved" | "rejected" }
-
-const MISSIONS: Mission[] = [
-  { id: 1, name: "Dev App — Gestion Audits", icon: "💻", color: "#8B5CF6", status: "en cours", progress: 35, phase: "Phase 2 — Maquettes", startedAt: "il y a 2j",
-    agents: [
-      { name: "PO", icon: "📋", status: "done", task: "Cadrage terminé" },
-      { name: "UX", icon: "🎨", status: "active", task: "Maquette en cours..." },
-      { name: "Archi", icon: "🏗️", status: "waiting", task: "Attend maquettes" },
-      { name: "Front", icon: "⚛️", status: "idle", task: "—" },
-      { name: "Back", icon: "⚙️", status: "idle", task: "—" },
-      { name: "DevOps", icon: "🚀", status: "idle", task: "—" },
-      { name: "QA", icon: "🧪", status: "idle", task: "—" },
-    ] },
-  { id: 2, name: "Gestion Emails", icon: "📧", color: "#3B82F6", status: "24/7", progress: 100, phase: "Opérationnel", startedAt: "il y a 5j",
-    agents: [
-      { name: "Trieur", icon: "📥", status: "active", task: "14 emails triés" },
-      { name: "Rédacteur", icon: "✍️", status: "active", task: "Brouillon Nexity prêt" },
-      { name: "Relanceur", icon: "🔔", status: "active", task: "Relance Mme Leroy" },
-    ] },
-  { id: 3, name: "Suivi Équipe Monday", icon: "👥", color: "#10B981", status: "24/7", progress: 100, phase: "Opérationnel", startedAt: "il y a 5j",
-    agents: [
-      { name: "Tracker", icon: "📊", status: "active", task: "12 tâches sync" },
-      { name: "Alerteur", icon: "⚠️", status: "active", task: "Karim — retard 2j" },
-    ] },
-  { id: 4, name: "Vie Perso", icon: "🏠", color: "#EC4899", status: "actif", progress: 100, phase: "Opérationnel", startedAt: "il y a 3j",
-    agents: [
-      { name: "Shopper", icon: "🛒", status: "active", task: "Courses livrées" },
-      { name: "Planificateur", icon: "📅", status: "active", task: "RDV dentiste ajouté" },
-    ] },
-]
-
-const INITIAL_APPROVALS: Approval[] = [
-  { id: 1, mission: "Emails", agent: "Rédacteur", icon: "✍️", action: "Répondre à Nexity — partenariat DPE", reason: "Email stratégique", priority: "haute", time: "12 min" },
-  { id: 2, mission: "Dev App", agent: "UX", icon: "🎨", action: "Maquette prête — valider pour coder", reason: "Gate Phase 2→3", priority: "moyenne", time: "35 min" },
-  { id: 3, mission: "Vie Perso", agent: "Shopper", icon: "🛒", action: "Billet train Lyon→Paris — 67€", reason: "> 50€", priority: "basse", time: "1h" },
-]
-
-const INITIAL_ACTIVITY: Activity[] = [
-  { time: "10:12", agent: "✍️", text: "Brouillon Nexity prêt → validation", type: "pending" },
-  { time: "10:08", agent: "📥", text: "3 emails triés — 1 urgent", type: "auto" },
-  { time: "09:55", agent: "⚠️", text: "Karim — DPE Iris en retard 2j", type: "alert" },
-  { time: "09:42", agent: "🎨", text: "Maquette dashboard générée", type: "done" },
-  { time: "09:30", agent: "📊", text: "Monday sync — 3 en retard", type: "auto" },
-  { time: "09:15", agent: "🛒", text: "Courses Carrefour — 38,50€ auto", type: "auto" },
-  { time: "08:45", agent: "📥", text: "Briefing : 8 emails, 2 urgents", type: "info" },
-  { time: "03:22", agent: "🔔", text: "Relance auto Mme Leroy", type: "auto" },
-]
 
 const statusColors: Record<string, string> = { done: "#10B981", active: "#3B82F6", waiting: "#D4940A", idle: "#D1D5DB" }
 const badges: Record<string, { bg: string; color: string; label: string }> = {
@@ -66,62 +21,178 @@ const badges: Record<string, { bg: string; color: string; label: string }> = {
   rejected: { bg: "#FEE2E2", color: "#DC2626", label: "REFUSÉ" },
 }
 
+function getMissionColor(name: string): string {
+  const n = name.toLowerCase()
+  if (n.includes("dev") || n.includes("app") || n.includes("code")) return "#8B5CF6"
+  if (n.includes("email") || n.includes("mail")) return "#3B82F6"
+  if (n.includes("monday") || n.includes("équipe") || n.includes("equipe") || n.includes("team")) return "#10B981"
+  if (n.includes("perso") || n.includes("vie") || n.includes("shop") || n.includes("courses")) return "#EC4899"
+  return "#D4940A"
+}
+
+function mapAgentStatus(s: string): AgentStatus {
+  if (s === "done") return "done"
+  if (s === "active" || s === "running" || s === "busy") return "active"
+  if (s === "waiting" || s === "pending") return "waiting"
+  return "idle"
+}
+
+function formatRelativeTime(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const minutes = Math.floor(diff / 60000)
+  const hours = Math.floor(diff / 3600000)
+  const days = Math.floor(diff / 86400000)
+  if (minutes < 60) return `il y a ${minutes}min`
+  if (hours < 24) return `il y a ${hours}h`
+  return `il y a ${days}j`
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapMission(m: any): Mission {
+  return {
+    id: String(m.id),
+    name: m.name,
+    icon: m.icon || "🎯",
+    color: getMissionColor(m.name),
+    status: m.status || "actif",
+    progress: m.progress ?? 0,
+    phase: m.phase || "En cours",
+    startedAt: m.createdAt ? formatRelativeTime(m.createdAt) : "récemment",
+    agents: (m.agents || []).map((a: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+      name: a.name || a.role || "Agent",
+      icon: a.icon || "🤖",
+      status: mapAgentStatus(a.status || "idle"),
+      task: a.lastAction || a.task || "—",
+    })),
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapApproval(a: any): Approval {
+  return {
+    id: String(a.id),
+    mission: a.missionId || "Mission",
+    agent: a.agentId || "Agent",
+    icon: a.icon || "🤖",
+    action: a.action || "Action",
+    reason: a.reason || "Validation requise",
+    priority: (a.priority as Approval["priority"]) || "moyenne",
+    time: a.time ? formatRelativeTime(a.time) : "récemment",
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapActivity(log: any): Activity {
+  return {
+    time: log.time
+      ? new Date(log.time).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+      : "--:--",
+    agent: log.agentIcon || "🤖",
+    text: log.text || "",
+    type: (log.type as Activity["type"]) || "info",
+  }
+}
+
 export default function Dashboard() {
   const [cmd, setCmd] = useState("")
-  const [approvals, setApprovals] = useState(INITIAL_APPROVALS)
-  const [activity, setActivity] = useState(INITIAL_ACTIVITY)
-  const [expanded, setExpanded] = useState<number | null>(null)
+  const [missions, setMissions] = useState<Mission[]>([])
+  const [approvals, setApprovals] = useState<Approval[]>([])
+  const [activity, setActivity] = useState<Activity[]>([])
+  const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [tab, setTab] = useState<"missions" | "validations" | "activite">("missions")
-  const [processing, setProcessing] = useState<number | null>(null)
-  const [feedback, setFeedback] = useState<Record<number, string>>({})
+  const [processing, setProcessing] = useState<string | null>(null)
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 4000) }
-  const totalAgents = MISSIONS.reduce((s, m) => s + m.agents.length, 0)
-  const activeAgents = MISSIONS.reduce((s, m) => s + m.agents.filter(a => a.status === "active").length, 0)
   const now = () => new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
 
-  const handleValidation = async (id: number, decision: "approve" | "reject") => {
+  const fetchData = useCallback(async () => {
+    try {
+      const [mRes, aRes, actRes] = await Promise.all([
+        fetch("/api/missions"),
+        fetch("/api/approvals"),
+        fetch("/api/activity"),
+      ])
+      if (mRes.ok) {
+        const data = await mRes.json()
+        setMissions((Array.isArray(data) ? data : []).map(mapMission))
+      }
+      if (aRes.ok) {
+        const data = await aRes.json()
+        setApprovals((Array.isArray(data) ? data : []).map(mapApproval))
+      }
+      if (actRes.ok) {
+        const data = await actRes.json()
+        setActivity((Array.isArray(data) ? data : []).map(mapActivity))
+      }
+    } catch (err) {
+      console.error("Fetch error:", err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+    const interval = setInterval(fetchData, 30000)
+    return () => clearInterval(interval)
+  }, [fetchData])
+
+  const handleCommand = async () => {
+    const command = cmd.trim()
+    if (!command) return
+    setCmd("")
+    showToast(`🎯 Ordre envoyé : "${command}"`)
+    try {
+      const res = await fetch("/api/orchestrate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: command }),
+      })
+      const data = await res.json()
+      if (data.response) showToast(`✅ ${data.response}`)
+      setTimeout(fetchData, 2000)
+    } catch {
+      // toast already shown
+    }
+  }
+
+  const handleValidation = async (id: string, decision: "approve" | "reject") => {
     const item = approvals.find(a => a.id === id)
     if (!item) return
-
     setProcessing(id)
-
     try {
+      // Notify backend
+      await fetch(`/api/approvals/${id}/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      })
+      // Get AI confirmation
       const res = await fetch("/api/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: item.action, decision, approvalId: id }),
       })
-
       const data = await res.json()
-
-      // Remove from approvals
       setApprovals(p => p.filter(a => a.id !== id))
-
-      // Store feedback from Maestro
-      setFeedback(p => ({ ...p, [id]: data.text }))
-
-      // Add to activity log
       const newLog: Activity = {
         time: now(),
         agent: item.icon,
-        text: decision === "approve"
-          ? `✅ ${item.action} — Exécuté`
-          : `❌ ${item.action} — Annulé`,
+        text: decision === "approve" ? `✅ ${item.action} — Exécuté` : `❌ ${item.action} — Annulé`,
         type: decision === "approve" ? "approved" : "rejected",
       }
       setActivity(p => [newLog, ...p])
-
-      // Show toast with Maestro's response
       showToast(data.text || (decision === "approve" ? "✅ Action exécutée" : "❌ Action annulée"))
-
     } catch {
       showToast("⚠️ Erreur — réessaie")
     }
-
     setProcessing(null)
   }
+
+  const totalAgents = missions.reduce((s, m) => s + m.agents.length, 0)
+  const activeAgents = missions.reduce((s, m) => s + m.agents.filter(a => a.status === "active").length, 0)
 
   return (
     <div className="min-h-[100dvh] bg-[var(--maestro-cream)]">
@@ -140,7 +211,9 @@ export default function Dashboard() {
           )}
           <div className="flex items-center gap-1.5 bg-green-500/[0.12] px-2.5 py-1 rounded-full">
             <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse-dot" />
-            <span className="text-green-500 text-[11px] font-semibold font-mono">{activeAgents}/{totalAgents}</span>
+            <span className="text-green-500 text-[11px] font-semibold font-mono">
+              {loading ? "…" : `${activeAgents}/${totalAgents}`}
+            </span>
           </div>
         </>
       } />
@@ -152,9 +225,9 @@ export default function Dashboard() {
             <span className="text-base opacity-50">💬</span>
             <input type="text" placeholder="Donne un ordre à Maestro..."
               value={cmd} onChange={e => setCmd(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter" && cmd.trim()) { showToast(`🎯 Ordre envoyé : "${cmd}"`); setCmd("") }}}
+              onKeyDown={e => { if (e.key === "Enter") handleCommand() }}
               className="flex-1 border-none outline-none text-sm bg-transparent text-[var(--maestro-primary)]" />
-            <button onClick={() => { if (cmd.trim()) { showToast(`🎯 Ordre envoyé : "${cmd}"`); setCmd("") }}}
+            <button onClick={handleCommand}
               className="bg-[var(--maestro-primary)] text-white rounded-xl px-4 py-2.5 text-sm font-semibold whitespace-nowrap touch-target">
               →
             </button>
@@ -164,7 +237,7 @@ export default function Dashboard() {
         {/* Tabs */}
         <div className="px-4 pt-3 flex gap-1">
           {([
-            { key: "missions" as const, label: "Missions", count: MISSIONS.length },
+            { key: "missions" as const, label: "Missions", count: missions.length },
             { key: "validations" as const, label: "Validations", count: approvals.length },
             { key: "activite" as const, label: "Activité", count: 0 },
           ]).map(t => (
@@ -182,7 +255,18 @@ export default function Dashboard() {
           {/* MISSIONS */}
           {tab === "missions" && (
             <div className="flex flex-col gap-2.5">
-              {MISSIONS.map(m => (
+              {loading ? (
+                <div className="bg-white rounded-2xl p-10 text-center border border-[var(--maestro-border)]">
+                  <div className="w-6 h-6 border-2 border-[var(--maestro-primary)]/20 border-t-[var(--maestro-primary)] rounded-full animate-spin mx-auto mb-3" />
+                  <div className="text-sm text-[var(--maestro-muted)]">Connexion au backend…</div>
+                </div>
+              ) : missions.length === 0 ? (
+                <div className="bg-white rounded-2xl p-10 text-center border border-[var(--maestro-border)] animate-fadeIn">
+                  <div className="text-4xl mb-3">🎯</div>
+                  <div className="font-semibold text-[var(--maestro-primary)] mb-1">Aucune mission active</div>
+                  <div className="text-sm text-[var(--maestro-muted)]">Donne un ordre à Maestro pour créer une mission.</div>
+                </div>
+              ) : missions.map(m => (
                 <div key={m.id} className="bg-white rounded-2xl overflow-hidden border border-[var(--maestro-border)] shadow-sm animate-fadeIn">
                   <div className="p-3.5 flex items-center gap-3 cursor-pointer active:bg-[var(--maestro-surface)] transition-colors"
                     onClick={() => setExpanded(expanded === m.id ? null : m.id)}>
@@ -222,7 +306,9 @@ export default function Dashboard() {
                   )}
                 </div>
               ))}
-              <button className="bg-white rounded-2xl p-5 border-2 border-dashed border-[var(--maestro-border)] text-[var(--maestro-muted)] text-sm font-medium flex items-center justify-center gap-2 hover:border-[var(--maestro-accent)] hover:text-[var(--maestro-accent)] transition-colors touch-target">
+              <button
+                onClick={() => { setCmd("Crée une nouvelle mission"); document.querySelector("input")?.focus() }}
+                className="bg-white rounded-2xl p-5 border-2 border-dashed border-[var(--maestro-border)] text-[var(--maestro-muted)] text-sm font-medium flex items-center justify-center gap-2 hover:border-[var(--maestro-accent)] hover:text-[var(--maestro-accent)] transition-colors touch-target">
                 + Nouvelle mission
               </button>
             </div>
@@ -244,7 +330,7 @@ export default function Dashboard() {
                     <span className="text-2xl">{item.icon}</span>
                     <div className="flex-1 min-w-0">
                       <div className="text-[13px] font-semibold text-[var(--maestro-primary)] leading-snug mb-1">{item.action}</div>
-                      <div className="text-[10px] text-[var(--maestro-muted)] font-mono mb-2">{item.mission} → {item.agent} · il y a {item.time}</div>
+                      <div className="text-[10px] text-[var(--maestro-muted)] font-mono mb-2">{item.mission} → {item.agent} · {item.time}</div>
                       <div className="text-[11px] text-[var(--maestro-accent)] bg-[var(--maestro-accent-bg)] px-2.5 py-1 rounded-lg inline-block mb-3">💡 {item.reason}</div>
                       <div className="flex gap-2">
                         <button
@@ -272,7 +358,12 @@ export default function Dashboard() {
           {/* ACTIVITÉ */}
           {tab === "activite" && (
             <div className="bg-white rounded-2xl overflow-hidden border border-[var(--maestro-border)] animate-fadeIn">
-              {activity.map((log, i) => {
+              {activity.length === 0 ? (
+                <div className="p-10 text-center">
+                  <div className="text-4xl mb-3">📋</div>
+                  <div className="text-sm text-[var(--maestro-muted)]">Aucune activité pour l'instant.</div>
+                </div>
+              ) : activity.map((log, i) => {
                 const b = badges[log.type] || badges.info
                 return (
                   <div key={i} className={`px-3.5 py-3 flex items-center gap-2.5 ${i < activity.length - 1 ? "border-b border-[var(--maestro-surface)]" : ""} ${
