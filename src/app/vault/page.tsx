@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { UserButton } from "@clerk/nextjs"
 import MaestroLogo from "@/components/MaestroLogo"
+import NavBar from "@/components/NavBar"
 
 type VaultItem = {
   id: number
@@ -275,19 +276,7 @@ export default function VaultPage() {
         )}
       </div>
 
-      {/* Bottom Nav */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-[var(--maestro-border)] px-5 py-2 flex justify-around shadow-[0_-2px_12px_rgba(0,0,0,0.04)] z-40">
-        {[
-          { icon: "🎯", label: "Dashboard", href: "/dashboard", active: false },
-          { icon: "💬", label: "Chat", href: "/chat", active: false },
-          { icon: "🔐", label: "Coffre-fort", href: "/vault", active: true },
-        ].map((n, i) => (
-          <a key={i} href={n.href} className={`text-center ${n.active ? "opacity-100" : "opacity-40"}`}>
-            <div className="text-lg">{n.icon}</div>
-            <div className={`text-[10px] font-semibold mt-0.5 ${n.active ? "text-[var(--maestro-accent)]" : "text-[var(--maestro-muted)]"}`}>{n.label}</div>
-          </a>
-        ))}
-      </div>
+      <NavBar />
     </div>
   )
 }

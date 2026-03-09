@@ -15,12 +15,25 @@
   --maestro-border: #E2DDD5;
   --maestro-muted: #7A8580;
   --maestro-success: #22C55E;
+  --maestro-white: #FFFFFF;
+}
+
+.dark {
+  --maestro-primary: #E8E6E1;
+  --maestro-primary-light: #D4D0C9;
+  --maestro-cream: #0F1A16;
+  --maestro-surface: #162420;
+  --maestro-border: #243D36;
+  --maestro-muted: #7A8580;
+  --maestro-white: #1A2F2A;
 }
 
 body {
   font-family: 'DM Sans', system-ui, sans-serif;
   background: var(--maestro-cream);
   color: var(--maestro-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 * {
@@ -29,23 +42,72 @@ body {
   padding: 0;
 }
 
-::placeholder {
-  color: var(--maestro-muted);
+/* Prevent iOS zoom on input focus */
+input, textarea, select {
+  font-size: 16px !important;
 }
 
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--maestro-border);
-  border-radius: 3px;
+@media (min-width: 768px) {
+  input, textarea, select {
+    font-size: 14px !important;
+  }
 }
 
+/* Safe area for mobile devices */
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 16px);
+}
+
+::placeholder { color: var(--maestro-muted); }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: var(--maestro-border); border-radius: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Animations */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
 }
 
-.animate-pulse-dot {
-  animation: pulse-dot 2s infinite;
+@keyframes slideDown {
+  from { transform: translate(-50%, -20px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-pulse-dot { animation: pulse-dot 2s infinite; }
+.animate-fadeIn { animation: fadeIn 0.3s ease; }
+.animate-scaleIn { animation: scaleIn 0.2s ease; }
+.animate-slideDown { animation: slideDown 0.3s ease; }
+
+/* Touch targets */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Smooth page transitions */
+main, .page-content {
+  animation: fadeIn 0.2s ease;
+}
+
+/* Remove tap highlight on mobile */
+a, button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Better scrolling on mobile */
+.scroll-smooth {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
 }
