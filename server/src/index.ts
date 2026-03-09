@@ -14,6 +14,7 @@ import { registerPlugin, getPlugins } from "./plugins/registry.js"
 import { telegramPlugin } from "./plugins/telegram.js"
 import { skillsPlugin } from "./plugins/skills.js"
 import { cronsPlugin } from "./plugins/crons.js"
+import { sandboxPlugin } from "./plugins/sandbox.js"
 
 dotenv.config()
 
@@ -238,6 +239,7 @@ async function boot() {
   // Register all plugins
   await registerPlugin(cronsPlugin, app)
   await registerPlugin(skillsPlugin, app)
+  await registerPlugin(sandboxPlugin, app)
   await registerPlugin(telegramPlugin, app)
 
   server.listen(PORT, () => {
