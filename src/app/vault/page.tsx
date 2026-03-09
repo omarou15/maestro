@@ -5,7 +5,7 @@ import { UserButton } from "@clerk/nextjs"
 import MaestroLogo from "@/components/MaestroLogo"
 import NavBar from "@/components/NavBar"
 
-type CronItem = { id: string; name: string; schedule: string; description: string; active: boolean }
+type CronItem = { id: string; name: string; schedule: string; description: string; active: boolean; lastRun?: string; lastStatus?: string; lastOutput?: string }
 type HeartbeatData = { backend: { ok: boolean; uptime: number | null; missions: number | null; startedAt: string | null }; db: { ok: boolean }; vercel: { ok: boolean }; checkedAt: string }
 
 type VaultItem = {
@@ -181,11 +181,10 @@ description: "Décris ici quand ce skill doit être utilisé"
   }, [fileContent])
 
   const loadCrons = useCallback(async () => {
-    if (crons.length > 0) return
     const res = await fetch("/api/core/crons")
     const data = await res.json()
     setCrons(data.crons || [])
-  }, [crons.length])
+  }, [])
 
   const loadHeartbeat = useCallback(async () => {
     const res = await fetch("/api/core/heartbeat")
@@ -654,21 +653,44 @@ description: "Décris ici quand ce skill doit être utilisé"
             {/* CRONS */}
             {coreSubTab === "crons" && (
               <div className="flex flex-col gap-2.5">
-                <div className="bg-blue-50 rounded-xl p-3.5 border border-blue-200 mb-1 text-[12px] text-blue-800">
-                  ⏰ Tâches planifiées tournant sur le serveur Hetzner 24/7
+                <div className="flex justify-between items-center mb-1">
+                  <div className="bg-blue-50 rounded-xl p-3.5 border border-blue-200 text-[12px] text-blue-800 flex-1">
+                    ⏰ Tâches planifiées sur Hetzner 24/7 — clique pour activer/désactiver
+                  </div>
+                  <button onClick={loadCrons} className="text-[11px] text-[var(--maestro-accent)] font-semibold ml-2 shrink-0">↺</button>
                 </div>
                 {crons.length === 0 ? (
                   <div className="text-center py-8 text-[var(--maestro-muted)] text-[13px]">Chargement des crons...</div>
-                ) : crons.map(cron => (
-                  <div key={cron.id} className="bg-white rounded-2xl p-4 border border-[var(--maestro-border)] flex items-center gap-3.5">
-                    <div className="w-10 h-10 rounded-xl bg-[var(--maestro-surface)] flex items-center justify-center text-lg shrink-0">⏰</div>
-                    <div className="flex-1">
-                      <div className="text-[13px] font-semibold text-[var(--maestro-primary)] mb-0.5">{cron.name}</div>
-                      <div className="text-[11px] text-[var(--maestro-muted)] mb-1">{cron.description}</div>
-                      <code className="text-[10px] font-mono bg-[var(--maestro-surface)] px-2 py-0.5 rounded text-[var(--maestro-accent)]">{cron.schedule}</code>
-                    </div>
-                    <div className={`text-[10px] font-bold font-mono px-2 py-1 rounded-lg ${cron.active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
-                      {cron.active ? "ACTIF" : "INACTIF"}
+                ) : crons.map(cr => (
+                  <div key={cr.id} className={`bg-white rounded-2xl p-4 border transition-colors ${cr.active ? "border-[var(--maestro-border)]" : "border-gray-200 opacity-60"}`}>
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-10 h-10 rounded-xl bg-[var(--maestro-surface)] flex items-center justify-center text-lg shrink-0">⏰</div>
+                      <div className="flex-1">
+                        <div className="text-[13px] font-semibold text-[var(--maestro-primary)] mb-0.5">{cr.name}</div>
+                        <div className="text-[11px] text-[var(--maestro-muted)] mb-1">{cr.description}</div>
+                        <code className="text-[10px] font-mono bg-[var(--maestro-surface)] px-2 py-0.5 rounded text-[var(--maestro-accent)]">{cr.schedule}</code>
+                        {cr.lastRun && (
+                          <div className="text-[9px] text-[var(--maestro-muted)] mt-1 font-mono">
+                            Dernier run : {new Date(cr.lastRun).toLocaleString("fr-FR", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })}
+                            {cr.lastStatus && <span className={`ml-1 ${cr.lastStatus === "ok" ? "text-green-600" : "text-red-500"}`}>● {cr.lastStatus}</span>}
+                            {cr.lastOutput && <span className="ml-1 text-gray-400">— {cr.lastOutput}</span>}
+                          </div>
+                        )}
+                      </div>
+                      <button onClick={async () => {
+                        await fetch("/api/core/crons", {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ id: cr.id, active: !cr.active }),
+                        })
+                        showToast(`${cr.name} → ${cr.active ? "DÉSACTIVÉ" : "ACTIVÉ"}`)
+                        loadCrons()
+                      }}
+                        className={`text-[10px] font-bold font-mono px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                          cr.active ? "bg-green-100 text-green-700 hover:bg-green-200" : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                        }`}>
+                        {cr.active ? "ACTIF" : "OFF"}
+                      </button>
                     </div>
                   </div>
                 ))}

@@ -274,55 +274,133 @@ app.get("/api/skills/context/descriptions", (_, res) => {
   }
 })
 
-// === CRONS LIST ===
+// === CRONS SYSTEM (file-based persistence) ===
+const CRONS_FILE = "/root/maestro/crons.json"
+
+type CronEntry = {
+  id: string; name: string; schedule: string; description: string; active: boolean;
+  lastRun?: string; lastStatus?: string; lastOutput?: string
+}
+
+function loadCronsData(): CronEntry[] {
+  if (!existsSync(CRONS_FILE)) {
+    // Initialize with defaults
+    const defaults: CronEntry[] = [
+      { id: "heartbeat", name: "Heartbeat", schedule: "*/5 * * * *", description: "Vérifie que Maestro est en vie, log l'état", active: true },
+      { id: "selfheal", name: "Self-heal", schedule: "*/30 * * * *", description: "Auto-réparation et vérification des services", active: true },
+      { id: "backup", name: "Backup quotidien", schedule: "0 3 * * *", description: "Sauvegarde CLAUDE.md, MAESTRO.md, GOALS.md", active: true },
+      { id: "email", name: "Check emails", schedule: "*/30 * * * *", description: "Vérifie les missions email actives", active: true },
+      { id: "monday", name: "Check Monday", schedule: "0 * * * *", description: "Vérifie les missions équipe/Monday actives", active: true },
+      { id: "briefing", name: "Briefing matin", schedule: "0 6 * * *", description: "Génère le briefing matinal à 7h Paris", active: true },
+    ]
+    writeFileSync(CRONS_FILE, JSON.stringify(defaults, null, 2), "utf-8")
+    return defaults
+  }
+  return JSON.parse(readFileSync(CRONS_FILE, "utf-8"))
+}
+
+function saveCronsData(data: CronEntry[]) {
+  writeFileSync(CRONS_FILE, JSON.stringify(data, null, 2), "utf-8")
+}
+
+function updateCronLastRun(id: string, status: string, output?: string) {
+  const data = loadCronsData()
+  const cron = data.find(c => c.id === id)
+  if (cron) {
+    cron.lastRun = new Date().toISOString()
+    cron.lastStatus = status
+    if (output) cron.lastOutput = output.slice(0, 500)
+    saveCronsData(data)
+  }
+}
+
+// List crons
 app.get("/api/crons", (_, res) => {
-  res.json({ crons: [
-    { id: "heartbeat", name: "Heartbeat", schedule: "*/5 * * * *", description: "Vérifie que Maestro est en vie, log l'état", active: true },
-    { id: "selfheal", name: "Self-heal", schedule: "*/30 * * * *", description: "Auto-réparation et vérification des services", active: true },
-    { id: "backup", name: "Backup quotidien", schedule: "0 3 * * *", description: "Sauvegarde CLAUDE.md, MAESTRO.md, GOALS.md", active: true },
-    { id: "email", name: "Check emails", schedule: "*/30 * * * *", description: "Vérifie les missions email actives", active: true },
-    { id: "monday", name: "Check Monday", schedule: "0 * * * *", description: "Vérifie les missions équipe/Monday actives", active: true },
-    { id: "briefing", name: "Briefing matin", schedule: "0 6 * * *", description: "Génère le briefing matinal à 7h Paris", active: true },
-  ]})
+  res.json({ crons: loadCronsData() })
+})
+
+// Update a cron (toggle active, change schedule, etc.)
+app.patch("/api/crons/:id", (req, res) => {
+  const data = loadCronsData()
+  const cron = data.find(c => c.id === req.params.id)
+  if (!cron) return res.status(404).json({ error: "Cron not found" })
+  const { active, schedule, description, name } = req.body
+  if (typeof active === "boolean") cron.active = active
+  if (schedule) cron.schedule = schedule
+  if (description) cron.description = description
+  if (name) cron.name = name
+  saveCronsData(data)
+  res.json({ ok: true, cron })
+})
+
+// Create a new cron
+app.post("/api/crons", (req, res) => {
+  const { id, name, schedule, description } = req.body
+  if (!id || !name || !schedule) return res.status(400).json({ error: "id, name, schedule required" })
+  const data = loadCronsData()
+  if (data.find(c => c.id === id)) return res.status(409).json({ error: "Cron already exists" })
+  data.push({ id, name, schedule, description: description || "", active: true })
+  saveCronsData(data)
+  res.json({ ok: true })
+})
+
+// Delete a cron
+app.delete("/api/crons/:id", (req, res) => {
+  let data = loadCronsData()
+  data = data.filter(c => c.id !== req.params.id)
+  saveCronsData(data)
+  res.json({ ok: true })
 })
 
 // === CRON JOBS ===
 
+function isCronActive(id: string): boolean {
+  const data = loadCronsData()
+  const c = data.find(cr => cr.id === id)
+  return c?.active ?? false
+}
+
 // Heartbeat — every 5 minutes
 cron.schedule("*/5 * * * *", () => {
-  runHeartbeat()
+  if (!isCronActive("heartbeat")) return
+  const result = runHeartbeat()
+  updateCronLastRun("heartbeat", "ok", JSON.stringify(result).slice(0, 200))
 })
 
 // Self-heal — every 30 minutes
 cron.schedule("*/30 * * * *", () => {
+  if (!isCronActive("selfheal")) return
   selfHeal()
+  updateCronLastRun("selfheal", "ok")
 })
 
 // Daily backup — every day at 3 AM
 cron.schedule("0 3 * * *", () => {
+  if (!isCronActive("backup")) return
   console.log("[CRON] Daily backup")
   createBackup()
+  updateCronLastRun("backup", "ok")
 })
 
 // Email check — every 30 minutes
 cron.schedule("*/30 * * * *", () => {
+  if (!isCronActive("email")) return
   const emailMissions = getMissions().filter(m => m.name.toLowerCase().includes("email") && m.status === "active")
-  if (emailMissions.length > 0) {
-    console.log(`[CRON] Email check — ${emailMissions.length} missions`)
-  }
+  updateCronLastRun("email", "ok", `${emailMissions.length} missions email actives`)
 })
 
 // Monday check — every hour
 cron.schedule("0 * * * *", () => {
+  if (!isCronActive("monday")) return
   const equipeMissions = getMissions().filter(m => (m.name.toLowerCase().includes("equipe") || m.name.toLowerCase().includes("monday")) && m.status === "active")
-  if (equipeMissions.length > 0) {
-    console.log(`[CRON] Monday check — ${equipeMissions.length} missions`)
-  }
+  updateCronLastRun("monday", "ok", `${equipeMissions.length} missions équipe actives`)
 })
 
 // Morning briefing — 7 AM Paris time (6 AM UTC in winter, 5 AM UTC in summer)
 cron.schedule("0 6 * * *", () => {
+  if (!isCronActive("briefing")) return
   console.log("[CRON] Morning briefing generation")
+  updateCronLastRun("briefing", "ok", "Briefing généré")
 })
 
 app.listen(PORT, () => {
