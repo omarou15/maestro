@@ -256,7 +256,8 @@ export async function POST(req: NextRequest) {
     const actualModel = modelMap[model || "claude-sonnet"] || modelMap["claude-sonnet"]
 
     // Router mémoire intelligent
-    const lastUserMsg = [...messages].reverse().find((m: { role: string }) => m.role === "user")?.content || ""
+    const lastUserMsgRaw = [...messages].reverse().find((m: { role: string }) => m.role === "user")?.content || ""
+    const lastUserMsg = typeof lastUserMsgRaw === "string" ? lastUserMsgRaw : (Array.isArray(lastUserMsgRaw) ? lastUserMsgRaw.filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join(" ") : "")
     let memoryContext = ""
     if (userId && lastUserMsg) {
       const needs = await needsMemoryContext(apiKey, lastUserMsg)
@@ -279,9 +280,9 @@ export async function POST(req: NextRequest) {
     const systemPrompt = getSystemPrompt(compactionContext || undefined, memoryContext || undefined, skillsContext || undefined)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let currentMessages: any[] = messages.map((m: { role: string; content: string }) => ({
+    let currentMessages: any[] = messages.map((m: { role: string; content: string | any[] }) => ({
       role: m.role === "user" ? "user" : "assistant",
-      content: m.content,
+      content: m.content, // Can be string or array of content blocks (text + image)
     }))
 
     let finalText = ""
@@ -299,7 +300,7 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify({
           model: actualModel,
-          max_tokens: 4096,
+          max_tokens: 16384,
           system: systemPrompt,
           tools: TOOLS,
           messages: currentMessages,
