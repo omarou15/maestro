@@ -1,0 +1,49 @@
+{
+  "name": "Maestro",
+  "version": "2.0.0",
+  "locale": "fr-FR",
+  "timezone": "Europe/Paris",
+  "port": 4000,
+  "frontendUrl": "*",
+  "defaultModel": "claude-sonnet-4-20250514",
+  "models": {
+    "claude-sonnet": {
+      "enabled": true
+    },
+    "claude-opus": {
+      "enabled": true
+    },
+    "claude-haiku": {
+      "enabled": true
+    }
+  },
+  "autonomy": {
+    "maxAutoSpend": 100,
+    "dailySpendCap": 200,
+    "allowSelfModify": true,
+    "allowRestart": true,
+    "emailEscalation": true
+  },
+  "plugins": {
+    "crons": {
+      "enabled": true
+    },
+    "skills": {
+      "enabled": true
+    },
+    "sandbox": {
+      "enabled": true
+    },
+    "telegram": {
+      "enabled": true
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true
+    },
+    "web": {
+      "enabled": true
+    }
+  }
+}

@@ -1,8 +1,9 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import Header from "@/components/Header"
 import NavBar from "@/components/NavBar"
+import { useGateway } from "@/hooks/useGateway"
 
 type AgentStatus = "done" | "active" | "waiting" | "idle"
 type Agent = { name: string; icon: string; status: AgentStatus; task: string }
@@ -104,6 +105,7 @@ export default function Dashboard() {
   const [tab, setTab] = useState<"missions" | "validations" | "activite">("missions")
   const [processing, setProcessing] = useState<string | null>(null)
   const [connected, setConnected] = useState<boolean | null>(null)
+  const { connected: wsConnected, on: onWsEvent } = useGateway()
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 4000) }
   const now = () => new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
@@ -134,20 +136,57 @@ export default function Dashboard() {
     }
   }, [])
 
+  // Initial fetch
+  useEffect(() => { fetchData() }, [fetchData])
+
+  // WebSocket: real-time updates replace polling
   useEffect(() => {
-    fetchData()
-    const interval = setInterval(fetchData, 30000)
-    return () => clearInterval(interval)
-  }, [fetchData])
+    setConnected(wsConnected)
+  }, [wsConnected])
 
   useEffect(() => {
+    // Re-fetch on mission/approval changes
+    const offs = [
+      onWsEvent("mission:created", () => fetchData()),
+      onWsEvent("mission:deleted", () => fetchData()),
+      onWsEvent("mission:updated", () => fetchData()),
+      onWsEvent("agent:completed", () => fetchData()),
+      onWsEvent("approval:needed", (data) => {
+        fetchData()
+        const d = data as { action?: string }
+        showToast(`Validation requise : ${d?.action || "nouvelle action"}`)
+      }),
+      onWsEvent("approval:resolved", () => fetchData()),
+      onWsEvent("activity", (data) => {
+        const d = data as { text?: string; type?: string }
+        if (d?.text) {
+          setActivity(p => [{ time: now(), agent: "🎯", text: d.text!, type: (d.type as Activity["type"]) || "info" }, ...p].slice(0, 50))
+        }
+      }),
+      onWsEvent("system:heartbeat", () => {
+        setConnected(true)
+      }),
+    ]
+    return () => offs.forEach(off => off())
+  }, [onWsEvent, fetchData]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fallback polling every 60s (in case WS disconnects)
+  useEffect(() => {
+    if (wsConnected) return
+    const interval = setInterval(fetchData, 60000)
+    return () => clearInterval(interval)
+  }, [wsConnected, fetchData])
+
+  // Health check fallback
+  useEffect(() => {
+    if (wsConnected) return
     const checkConnection = () => {
       fetch("/api/health").then(r => setConnected(r.ok)).catch(() => setConnected(false))
     }
     checkConnection()
     const interval = setInterval(checkConnection, 60000)
     return () => clearInterval(interval)
-  }, [])
+  }, [wsConnected])
 
   const handleCommand = async () => {
     const command = cmd.trim()
@@ -218,7 +257,7 @@ export default function Dashboard() {
             <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full ${connected ? "bg-white/10" : "bg-red-500/20"}`}>
               <div className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-green-400 animate-pulse-dot" : "bg-red-400"}`} />
               <span className={`text-[10px] font-semibold ${connected ? "text-white/80" : "text-red-300"}`}>
-                {connected ? "Connecté" : "Hors ligne"}
+                {wsConnected ? "Live" : connected ? "Connecté" : "Hors ligne"}
               </span>
             </div>
           )}
