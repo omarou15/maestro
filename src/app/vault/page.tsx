@@ -28,7 +28,7 @@ const CATEGORIES = [
   { key: "perso", label: "Comptes perso", icon: "👤" },
 ]
 
-const RULES = [
+const DEFAULT_RULES = [
   { icon: "💳", label: "Plafond par transaction", value: "50€", desc: "Au-dessus → validation requise", mode: "validation" },
   { icon: "📅", label: "Plafond journalier", value: "200€", desc: "Total max auto par jour", mode: "validation" },
   { icon: "📧", label: "Emails stratégiques", value: "Validation", desc: "Clients > 10K€ de CA annuel", mode: "validation" },
@@ -36,13 +36,15 @@ const RULES = [
   { icon: "⚠️", label: "Déploiements production", value: "Validation", desc: "Toujours demander avant", mode: "validation" },
 ]
 
-const MODEL_CONFIGS = [
+const DEFAULT_MODELS = [
   { role: "Orchestrateur (Maestro)", model: "Claude Sonnet 4", icon: "🎯", reason: "Raisonnement + coordination", cost: "Via API" },
   { role: "Agents Dev (PO → QA)", model: "Claude Code", icon: "💻", reason: "Code via Claude Code sur serveur", cost: "Inclus Max" },
   { role: "Rédaction emails", model: "GPT-4o", icon: "📧", reason: "Rédaction naturelle", cost: "~0.02€/email" },
   { role: "Tri / classification", model: "Claude Haiku", icon: "📥", reason: "Ultra-rapide, pas cher", cost: "~0.001€/tri" },
   { role: "Browser automation", model: "Claude Sonnet", icon: "🛒", reason: "Navigation web complexe", cost: "~0.05€/action" },
 ]
+
+const MODEL_OPTIONS = ["Claude Opus 4", "Claude Sonnet 4", "Claude Haiku", "Claude Code", "GPT-4o", "Gemini 2.5"]
 
 type FormState = {
   category: string; name: string; icon: string; type: string
@@ -55,7 +57,7 @@ export default function VaultPage() {
   const [filter, setFilter] = useState("all")
   const [activeTab, setActiveTab] = useState<"coffre" | "regles" | "modeles" | "core">("coffre")
   // Core state
-  const [coreSubTab, setCoreSubTab] = useState<"claude" | "maestro" | "crons" | "heartbeat">("claude")
+  const [coreSubTab, setCoreSubTab] = useState<"claude" | "maestro" | "goals" | "learnings" | "crons" | "heartbeat">("claude")
   const [fileContent, setFileContent] = useState<Record<string, string>>({})
   const [fileSaving, setFileSaving] = useState(false)
   const [crons, setCrons] = useState<CronItem[]>([])
@@ -68,6 +70,9 @@ export default function VaultPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [rules, setRules] = useState(DEFAULT_RULES)
+  const [modelConfigs, setModelConfigs] = useState(DEFAULT_MODELS)
+  const [editingModelIdx, setEditingModelIdx] = useState<number | null>(null)
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
@@ -108,6 +113,8 @@ export default function VaultPage() {
     if (activeTab !== "core") return
     if (coreSubTab === "claude") loadCoreFile("claude")
     if (coreSubTab === "maestro") loadCoreFile("maestro")
+    if (coreSubTab === "goals") loadCoreFile("goals")
+    if (coreSubTab === "learnings") loadCoreFile("learnings")
     if (coreSubTab === "crons") loadCrons()
     if (coreSubTab === "heartbeat") loadHeartbeat()
   }, [activeTab, coreSubTab, loadCoreFile, loadCrons, loadHeartbeat])
@@ -263,8 +270,8 @@ export default function VaultPage() {
       <div className="px-5 pt-4 flex gap-1">
         {([
           { key: "coffre" as const, label: "🔑 Coffre-fort", count: items.length },
-          { key: "regles" as const, label: "⚡ Autonomie", count: RULES.length },
-          { key: "modeles" as const, label: "🧠 Modèles IA", count: MODEL_CONFIGS.length },
+          { key: "regles" as const, label: "⚡ Autonomie", count: rules.length },
+          { key: "modeles" as const, label: "🧠 Modèles IA", count: modelConfigs.length },
           { key: "core" as const, label: "⚙️ Core", count: null },
         ]).map(t => (
           <button key={t.key} onClick={() => setActiveTab(t.key)}
@@ -360,20 +367,26 @@ export default function VaultPage() {
             <div className="bg-amber-50 rounded-xl p-3.5 border border-amber-200 flex items-center gap-3 mb-1">
               <span className="text-xl">⚡</span>
               <div>
-                <div className="text-[13px] font-semibold text-amber-900">Règles d'autonomie</div>
-                <div className="text-[12px] text-amber-700">Ce que Maestro peut faire seul vs ce qui te demande validation</div>
+                <div className="text-[13px] font-semibold text-amber-900">Règles d&apos;autonomie</div>
+                <div className="text-[12px] text-amber-700">Clique sur le badge pour basculer Auto ↔ Validation</div>
               </div>
             </div>
-            {RULES.map((rule, i) => (
+            {rules.map((rule, i) => (
               <div key={i} className="bg-white rounded-2xl p-4 border border-[var(--maestro-border)] flex items-center gap-3.5">
                 <div className="w-10 h-10 rounded-xl bg-[var(--maestro-surface)] flex items-center justify-center text-lg shrink-0">{rule.icon}</div>
                 <div className="flex-1">
                   <div className="text-[13px] font-semibold text-[var(--maestro-primary)] mb-0.5">{rule.label}</div>
                   <div className="text-[12px] text-[var(--maestro-muted)]">{rule.desc}</div>
                 </div>
-                <div className={`text-[12px] font-bold font-mono px-3 py-1.5 rounded-lg text-center min-w-[80px] ${
-                  rule.mode === "auto" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
-                }`}>{rule.value}</div>
+                <button onClick={() => {
+                  const updated = [...rules]
+                  updated[i] = { ...updated[i], mode: rule.mode === "auto" ? "validation" : "auto", value: rule.mode === "auto" ? "Validation" : "Auto" }
+                  setRules(updated)
+                  showToast(`${rule.label} → ${rule.mode === "auto" ? "Validation" : "Auto"}`)
+                }}
+                  className={`text-[12px] font-bold font-mono px-3 py-1.5 rounded-lg text-center min-w-[80px] cursor-pointer transition-colors ${
+                    rule.mode === "auto" ? "bg-green-100 text-green-700 hover:bg-green-200" : "bg-amber-100 text-amber-700 hover:bg-amber-200"
+                  }`}>{rule.value}</button>
               </div>
             ))}
           </div>
@@ -386,18 +399,37 @@ export default function VaultPage() {
               <span className="text-xl">🧠</span>
               <div>
                 <div className="text-[13px] font-semibold text-blue-900">Attribution des modèles IA</div>
-                <div className="text-[12px] text-blue-700">Maestro choisit le meilleur cerveau pour chaque type d'agent</div>
+                <div className="text-[12px] text-blue-700">Clique sur le modèle pour le changer</div>
               </div>
             </div>
-            {MODEL_CONFIGS.map((item, i) => (
+            {modelConfigs.map((item, i) => (
               <div key={i} className="bg-white rounded-2xl p-4 border border-[var(--maestro-border)] flex items-center gap-3.5">
                 <div className="w-10 h-10 rounded-xl bg-[var(--maestro-surface)] flex items-center justify-center text-lg shrink-0">{item.icon}</div>
                 <div className="flex-1">
                   <div className="text-[13px] font-semibold text-[var(--maestro-primary)] mb-0.5">{item.role}</div>
                   <div className="text-[12px] text-[var(--maestro-muted)]">{item.reason}</div>
                 </div>
-                <div className="text-right shrink-0">
-                  <div className="bg-purple-50 text-purple-700 text-[11px] font-bold font-mono px-2.5 py-1 rounded-lg mb-1">{item.model}</div>
+                <div className="text-right shrink-0 relative">
+                  {editingModelIdx === i ? (
+                    <div className="absolute right-0 bottom-full mb-1 bg-white rounded-xl shadow-xl border border-[var(--maestro-border)] overflow-hidden z-50 min-w-[160px]">
+                      {MODEL_OPTIONS.map(m => (
+                        <button key={m} onClick={() => {
+                          const updated = [...modelConfigs]
+                          updated[i] = { ...updated[i], model: m }
+                          setModelConfigs(updated)
+                          setEditingModelIdx(null)
+                          showToast(`${item.role} → ${m}`)
+                        }}
+                          className={`w-full px-3 py-2 text-left text-[12px] hover:bg-[var(--maestro-surface)] transition-colors ${item.model === m ? "font-bold text-[var(--maestro-accent)]" : "text-[var(--maestro-primary)]"}`}>
+                          {m} {item.model === m ? "✓" : ""}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <button onClick={() => setEditingModelIdx(editingModelIdx === i ? null : i)}
+                    className="bg-purple-50 text-purple-700 text-[11px] font-bold font-mono px-2.5 py-1 rounded-lg mb-1 hover:bg-purple-100 transition-colors cursor-pointer">
+                    {item.model}
+                  </button>
                   <div className="text-[10px] text-[var(--maestro-muted)] font-mono">{item.cost}</div>
                 </div>
               </div>
@@ -412,6 +444,8 @@ export default function VaultPage() {
               {([
                 { key: "claude" as const, label: "CLAUDE.md", icon: "📋" },
                 { key: "maestro" as const, label: "MAESTRO.md", icon: "🎯" },
+                { key: "goals" as const, label: "GOALS.md", icon: "🎯" },
+                { key: "learnings" as const, label: "LEARNINGS.md", icon: "📚" },
                 { key: "crons" as const, label: "Crons", icon: "⏰" },
                 { key: "heartbeat" as const, label: "Heartbeat", icon: "💓" },
               ]).map(t => (
@@ -427,7 +461,7 @@ export default function VaultPage() {
             </div>
 
             {/* CLAUDE.md / MAESTRO.md editors */}
-            {(coreSubTab === "claude" || coreSubTab === "maestro") && (
+            {(coreSubTab === "claude" || coreSubTab === "maestro" || coreSubTab === "goals" || coreSubTab === "learnings") && (
               <div className="flex flex-col gap-3">
                 <div className="bg-amber-50 rounded-xl p-3 border border-amber-200 text-[12px] text-amber-800">
                   ⚠️ Modifications directes sur le serveur + git push automatique. Maestro se comportera différemment après sauvegarde.
