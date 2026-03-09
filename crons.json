@@ -15,7 +15,7 @@
     "schedule": "*/30 * * * *",
     "description": "Auto-réparation et vérification des services",
     "active": true,
-    "lastRun": "2026-03-09T21:30:00.839Z",
+    "lastRun": "2026-03-09T22:00:00.712Z",
     "lastStatus": "ok"
   },
   {
@@ -31,7 +31,7 @@
     "schedule": "*/30 * * * *",
     "description": "Vérifie les missions email actives",
     "active": true,
-    "lastRun": "2026-03-09T21:30:00.840Z",
+    "lastRun": "2026-03-09T22:00:00.713Z",
     "lastStatus": "ok",
     "lastOutput": "0 missions email actives"
   },
@@ -40,7 +40,10 @@
     "name": "Check Monday",
     "schedule": "0 * * * *",
     "description": "Vérifie les missions équipe/Monday actives",
-    "active": true
+    "active": true,
+    "lastRun": "2026-03-09T22:00:00.713Z",
+    "lastStatus": "ok",
+    "lastOutput": "0 missions équipe actives"
   },
   {
     "id": "briefing",

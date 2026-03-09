@@ -1,4 +1,4 @@
-const WS_URL = process.env.NEXT_PUBLIC_BACKEND_WS || "wss://maestro-core.ocontact.fr/ws"
+const WS_URL = process.env.NEXT_PUBLIC_BACKEND_WS || "ws://178.156.251.108:4000/ws"
 
 type EventHandler = (data: unknown) => void
 
