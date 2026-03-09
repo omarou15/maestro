@@ -1,0 +1,47 @@
+[
+  {
+    "id": "heartbeat",
+    "name": "Heartbeat",
+    "schedule": "*/5 * * * *",
+    "description": "Vérifie que Maestro est en vie, log l'état",
+    "active": true,
+    "lastRun": "2026-03-09T21:30:00.758Z",
+    "lastStatus": "ok",
+    "lastOutput": "{\"timestamp\":\"2026-03-09T21:30:00.756Z\",\"alive\":true,\"checks\":{\"serverRunning\":true,\"apiResponding\":true,\"missionsActive\":0,\"lastActivity\":\"aucune\",\"goalsProgress\":{\"total\":25,\"done\":11,\"percent\":44},"
+  },
+  {
+    "id": "selfheal",
+    "name": "Self-heal",
+    "schedule": "*/30 * * * *",
+    "description": "Auto-réparation et vérification des services",
+    "active": true
+  },
+  {
+    "id": "backup",
+    "name": "Backup quotidien",
+    "schedule": "0 3 * * *",
+    "description": "Sauvegarde CLAUDE.md, MAESTRO.md, GOALS.md",
+    "active": true
+  },
+  {
+    "id": "email",
+    "name": "Check emails",
+    "schedule": "*/30 * * * *",
+    "description": "Vérifie les missions email actives",
+    "active": true
+  },
+  {
+    "id": "monday",
+    "name": "Check Monday",
+    "schedule": "0 * * * *",
+    "description": "Vérifie les missions équipe/Monday actives",
+    "active": true
+  },
+  {
+    "id": "briefing",
+    "name": "Briefing matin",
+    "schedule": "0 6 * * *",
+    "description": "Génère le briefing matinal à 7h Paris",
+    "active": true
+  }
+]
