@@ -1,0 +1,15 @@
+{
+  "score": 80,
+  "lastCheck": "2026-03-09T22:33:53.268Z",
+  "lastActivity": "2026-03-09T22:39:21.375Z",
+  "history": [
+    {
+      "time": "2026-03-09T22:33:53.268Z",
+      "score": 80,
+      "actions": [
+        "auto_backup: git commit effectué"
+      ]
+    }
+  ],
+  "streak": 0
+}
