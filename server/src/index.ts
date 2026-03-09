@@ -2,6 +2,7 @@ import express from "express"
 import cors from "cors"
 import cron from "node-cron"
 import dotenv from "dotenv"
+import { spawnSync } from "child_process"
 import { createMission, getMissions, getMission, deleteMission, getApprovals, addApproval, resolveApproval, orchestrate, runAgent, getActivityLog } from "./lib/agentManager.js"
 
 dotenv.config()
@@ -93,6 +94,33 @@ app.post("/api/approvals/:id/resolve", (req, res) => {
 // === ACTIVITY LOG ===
 app.get("/api/activity", (_, res) => {
   res.json({ log: getActivityLog() })
+})
+
+// === SELF-MODIFY (Maestro modifie son propre code) ===
+app.post("/api/self-modify", (req, res) => {
+  const { prompt } = req.body
+  if (!prompt) return res.status(400).json({ error: "prompt required" })
+
+  console.log(`[SELF-MODIFY ${new Date().toISOString()}] "${prompt.slice(0, 80)}..."`)
+
+  const result = spawnSync(
+    "claude",
+    ["-p", prompt, "--dangerously-skip-permissions"],
+    { cwd: "/root/maestro", timeout: 180000, encoding: "utf8" }
+  )
+
+  if (result.error) {
+    console.error("[SELF-MODIFY] Error:", result.error.message)
+    return res.json({ success: false, error: result.error.message })
+  }
+
+  if (result.status !== 0) {
+    console.error("[SELF-MODIFY] Failed:", result.stderr)
+    return res.json({ success: false, error: result.stderr || "Modification échouée", output: result.stdout })
+  }
+
+  console.log(`[SELF-MODIFY] Done. Output: ${result.stdout.slice(0, 200)}`)
+  res.json({ success: true, output: result.stdout })
 })
 
 // === CRON JOBS (24/7) ===

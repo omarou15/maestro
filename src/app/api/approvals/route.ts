@@ -6,7 +6,7 @@ export async function GET() {
   try {
     const res = await fetch(`${BACKEND}/api/approvals`, { cache: "no-store" })
     const data = await res.json()
-    return NextResponse.json(data)
+    return NextResponse.json(data.approvals ?? data)
   } catch {
     return NextResponse.json([], { status: 200 })
   }

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
+export const maxDuration = 300 // 5 min — nécessaire pour les auto-modifications
+
 const BACKEND = "http://178.156.251.108:4000"
 
 function getSystemPrompt(compactionContext?: string) {
@@ -38,10 +40,14 @@ CAPACITÉS :
 - Approuver ou refuser une validation (outil : resolve_approval)
 - Consulter l'activité récente (outil : get_activity)
 - Générer des artifacts interactifs
+- Modifier ton propre code (outil : self_modify) — POUVOIR ULTIME
 - Seuil autonomie : < 50€ auto, > 50€ validation
 
 RÈGLE IMPORTANTE :
-Quand l'utilisateur donne un ordre d'action (lancer une mission, consulter les agents, valider une action, etc.), UTILISE TOUJOURS l'outil correspondant. Ne simule jamais une action sans appeler l'outil réel.
+Quand l'utilisateur donne un ordre d'action (lancer une mission, consulter les agents, valider une action, modifier ton code, etc.), UTILISE TOUJOURS l'outil correspondant. Ne simule jamais une action sans appeler l'outil réel.
+
+RÈGLE SELF-MODIFY :
+Quand l'utilisateur te demande de modifier ton interface, ajouter une page, corriger un bug, améliorer une feature — utilise l'outil self_modify avec un prompt précis et complet qui décrit exactement ce qui doit changer. Fais confiance au résultat. Le deploy Vercel est automatique après le push.
 
 ARTIFACTS :
 Quand on demande une interface/composant :
@@ -95,6 +101,20 @@ const TOOLS = [
     description: "Récupère le journal d'activité récent des agents.",
     input_schema: { type: "object", properties: {} },
   },
+  {
+    name: "self_modify",
+    description: "Modifie le code source de Maestro lui-même — ajoute des pages, corrige des bugs, améliore l'interface. Le deploy Vercel est automatique. Utilise cet outil quand l'utilisateur veut changer quelque chose dans l'application.",
+    input_schema: {
+      type: "object",
+      properties: {
+        prompt: {
+          type: "string",
+          description: "Description précise et complète de la modification à apporter. Inclure : quoi modifier, où, comment, dans quel style (design system Maestro : Vert Sapin #1A2F2A, Ambre #D4940A).",
+        },
+      },
+      required: ["prompt"],
+    },
+  },
 ]
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -127,6 +147,15 @@ async function executeTool(name: string, input: any): Promise<string> {
       }
       case "get_activity": {
         const res = await fetch(`${BACKEND}/api/activity`)
+        return JSON.stringify(await res.json())
+      }
+      case "self_modify": {
+        const res = await fetch(`${BACKEND}/api/self-modify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: input.prompt }),
+          signal: AbortSignal.timeout(200000), // 3min 20s
+        })
         return JSON.stringify(await res.json())
       }
       default:
