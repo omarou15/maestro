@@ -15,6 +15,7 @@ import { telegramPlugin } from "./plugins/telegram.js"
 import { skillsPlugin } from "./plugins/skills.js"
 import { cronsPlugin } from "./plugins/crons.js"
 import { sandboxPlugin } from "./plugins/sandbox.js"
+import { configPlugin } from "./plugins/config.js"
 
 dotenv.config()
 
@@ -237,6 +238,7 @@ app.put("/api/files/:name", (req, res) => {
 // === BOOT ===
 async function boot() {
   // Register all plugins
+  await registerPlugin(configPlugin, app)
   await registerPlugin(cronsPlugin, app)
   await registerPlugin(skillsPlugin, app)
   await registerPlugin(sandboxPlugin, app)
