@@ -92,11 +92,24 @@ export default function ChatPage() {
   // Load or create chat on mount
   useEffect(() => {
     async function init() {
+      // 1. Try localStorage active chat
       const activeId = getActiveChatId()
       if (activeId) {
         const chat = await getChat(activeId)
         if (chat) { setChatId(activeId); setMessages(chat.messages); setLoaded(true); refreshChatList(); return }
       }
+      // 2. No localStorage? Load most recent chat from DB (cross-browser persistence)
+      const allExisting = await getAllChats()
+      if (allExisting.length > 0) {
+        const latest = allExisting[0] // already sorted by updated_at DESC
+        setChatId(latest.id)
+        setActiveChatId(latest.id)
+        setMessages(latest.messages)
+        setLoaded(true)
+        refreshChatList()
+        return
+      }
+      // 3. No chats at all? Create first one
       const newChatObj = await createChat()
       setChatId(newChatObj.id)
       const welcomeMsg: StoredMessage = { id: 0, role: "system", text: "👋 Bienvenue sur Maestro. Dis-moi ce que tu veux accomplir.", time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) }
