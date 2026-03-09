@@ -6,15 +6,7 @@ import MaestroLogo from "@/components/MaestroLogo"
 
 type ModelId = "claude-opus" | "claude-sonnet" | "claude-haiku" | "gpt4o" | "gemini" | "dalle"
 
-type Model = {
-  id: ModelId
-  name: string
-  icon: string
-  color: string
-  specialty: string
-}
-
-const MODELS: Model[] = [
+const MODELS = [
   { id: "claude-opus", name: "Claude Opus", icon: "🧠", color: "#8B5CF6", specialty: "Raisonnement complexe" },
   { id: "claude-sonnet", name: "Claude Sonnet", icon: "⚡", color: "#6366F1", specialty: "Code & dev rapide" },
   { id: "claude-haiku", name: "Claude Haiku", icon: "🐇", color: "#A78BFA", specialty: "Tâches rapides" },
@@ -32,29 +24,45 @@ type Message = {
 }
 
 const WELCOME: Message = {
-  id: 0, role: "system", time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
+  id: 0, role: "system",
+  time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
   text: "👋 Bienvenue sur Maestro. Je suis ton orchestrateur IA — dis-moi ce que tu veux accomplir et je m'en occupe.",
 }
 
 const SUGGESTIONS = [
-  "📧 Résume mes emails importants d'aujourd'hui",
-  "👥 Fais le point sur les tâches de mon équipe",
-  "💻 Crée un agent pour développer une app",
-  "🛒 Commande mes courses de la semaine",
-  "📊 Génère un rapport de mes audits ce mois-ci",
+  "📧 Résume mes emails importants",
+  "👥 Point sur les tâches de mon équipe",
+  "💻 Crée un dashboard de suivi audits",
+  "🛒 Commande mes courses",
+  "📊 Génère un rapport mensuel",
   "📅 Organise ma journée de demain",
+]
+
+const THINKING_STEPS = [
+  ["Analyse de la demande", "🔍"],
+  ["Sélection du modèle IA", "🧠"],
+  ["Mobilisation de l'agent", "🤖"],
+  ["Exécution en cours", "⚡"],
 ]
 
 function ArtifactRenderer({ code, title }: { code: string; title: string }) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [height, setHeight] = useState(300)
 
   useEffect(() => {
     if (iframeRef.current) {
       const doc = iframeRef.current.contentDocument
       if (doc) {
         doc.open()
-        doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"><style>*{box-sizing:border-box;margin:0;padding:0}body{background:transparent;display:flex;justify-content:center;padding:8px}</style></head><body>${code}</body></html>`)
+        doc.write(code)
         doc.close()
+        // Auto-resize
+        setTimeout(() => {
+          if (iframeRef.current?.contentDocument?.body) {
+            const h = iframeRef.current.contentDocument.body.scrollHeight
+            setHeight(Math.min(Math.max(h + 20, 200), 600))
+          }
+        }, 500)
       }
     }
   }, [code])
@@ -70,33 +78,103 @@ function ArtifactRenderer({ code, title }: { code: string; title: string }) {
           </div>
           <span className="text-[11px] font-semibold text-[var(--maestro-muted)] font-mono">{title}</span>
         </div>
-        <span className="text-[10px] text-[var(--maestro-accent)] font-mono font-semibold">ARTIFACT</span>
+        <span className="text-[10px] text-[var(--maestro-accent)] font-mono font-bold">ARTIFACT LIVE ⚡</span>
       </div>
-      <iframe ref={iframeRef} className="w-full border-none" style={{ height: 260 }} sandbox="allow-scripts" />
+      <iframe ref={iframeRef} className="w-full border-none" style={{ height }} sandbox="allow-scripts allow-same-origin" />
     </div>
   )
 }
 
-function parseResponse(text: string) {
-  // Detect HTML artifacts in response
-  const artifactMatch = text.match(/```html\n([\s\S]*?)```/)
-  if (artifactMatch) {
-    const cleanText = text.replace(/```html\n[\s\S]*?```/, "").trim()
-    return { text: cleanText, artifact: { code: artifactMatch[1], title: "Artifact Maestro" } }
+function parseResponse(text: string): { cleanText: string; artifacts: { code: string; title: string }[] } {
+  const artifacts: { code: string; title: string }[] = []
+  let cleanText = text
+
+  // Parse <artifact title="...">...</artifact>
+  const artifactRegex = /<artifact(?:\s+title="([^"]*)")?>([\s\S]*?)<\/artifact>/gi
+  let match
+  while ((match = artifactRegex.exec(text)) !== null) {
+    artifacts.push({ title: match[1] || "Artifact Maestro", code: match[2].trim() })
+    cleanText = cleanText.replace(match[0], "")
   }
-  return { text, artifact: null }
+
+  // Also catch ```html blocks as fallback
+  const codeBlockRegex = /```html\s*\n([\s\S]*?)```/gi
+  while ((match = codeBlockRegex.exec(cleanText)) !== null) {
+    artifacts.push({ title: "Artifact Maestro", code: match[1].trim() })
+    cleanText = cleanText.replace(match[0], "")
+  }
+
+  // Clean up any remaining code blocks (don't show to user)
+  cleanText = cleanText.replace(/```[\s\S]*?```/g, "").trim()
+
+  // Remove ** markdown bold and replace with clean text
+  cleanText = cleanText.replace(/\*\*/g, "")
+
+  return { cleanText, artifacts }
+}
+
+function ThinkingIndicator({ step }: { step: number }) {
+  return (
+    <div className="flex gap-2.5">
+      <div className="w-7 h-7 rounded-lg bg-[var(--maestro-surface)] flex items-center justify-center shrink-0">
+        <MaestroLogo size={18} />
+      </div>
+      <div className="bg-white rounded-2xl px-4 py-3 border border-[var(--maestro-border)] min-w-[200px]">
+        <div className="flex flex-col gap-1.5">
+          {THINKING_STEPS.map(([label, icon], i) => (
+            <div key={i} className={`flex items-center gap-2 text-[12px] transition-all duration-300 ${
+              i < step ? "text-green-600" : i === step ? "text-[var(--maestro-accent)]" : "text-[var(--maestro-border)]"
+            }`}>
+              <span className="text-sm">{i < step ? "✅" : i === step ? icon : "○"}</span>
+              <span className={i === step ? "font-semibold" : ""}>{label}</span>
+              {i === step && (
+                <div className="flex gap-0.5 ml-1">
+                  <div className="w-1.5 h-1.5 rounded-full bg-[var(--maestro-accent)] animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <div className="w-1.5 h-1.5 rounded-full bg-[var(--maestro-accent)] animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <div className="w-1.5 h-1.5 rounded-full bg-[var(--maestro-accent)] animate-bounce" style={{ animationDelay: "300ms" }} />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export default function ChatPage() {
   const [input, setInput] = useState("")
   const [messages, setMessages] = useState<Message[]>([WELCOME])
   const [isTyping, setIsTyping] = useState(false)
+  const [thinkingStep, setThinkingStep] = useState(0)
   const [showModels, setShowModels] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const thinkingInterval = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages, isTyping])
+  }, [messages, isTyping, thinkingStep])
+
+  const startThinking = () => {
+    setIsTyping(true)
+    setThinkingStep(0)
+    let step = 0
+    thinkingInterval.current = setInterval(() => {
+      step++
+      if (step < THINKING_STEPS.length) {
+        setThinkingStep(step)
+      }
+    }, 1200)
+  }
+
+  const stopThinking = () => {
+    setIsTyping(false)
+    setThinkingStep(0)
+    if (thinkingInterval.current) {
+      clearInterval(thinkingInterval.current)
+      thinkingInterval.current = null
+    }
+  }
 
   const send = async (text?: string) => {
     const msgText = text || input
@@ -106,10 +184,9 @@ export default function ChatPage() {
     const userMsg: Message = { id: Date.now(), role: "user", text: msgText, time: now }
     setMessages(p => [...p, userMsg])
     setInput("")
-    setIsTyping(true)
+    startThinking()
 
     try {
-      // Build conversation history for API
       const history = [...messages.filter(m => m.role !== "system"), userMsg].map(m => ({
         role: m.role === "assistant" ? "assistant" : "user",
         content: m.text,
@@ -123,28 +200,29 @@ export default function ChatPage() {
 
       const data = await res.json()
 
+      stopThinking()
+
       if (data.error) {
         setMessages(p => [...p, {
-          id: Date.now() + 1, role: "assistant", model: "claude-sonnet" as ModelId,
+          id: Date.now() + 1, role: "assistant" as const, model: "claude-sonnet" as ModelId,
           time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
-          text: "⚠️ Erreur de connexion avec l'IA. Réessaie dans quelques secondes.",
+          text: "⚠️ Erreur de connexion. Réessaie dans quelques secondes.",
         }])
       } else {
         setMessages(p => [...p, {
-          id: Date.now() + 1, role: "assistant", model: (data.model || "claude-sonnet") as ModelId,
+          id: Date.now() + 1, role: "assistant" as const, model: (data.model || "claude-sonnet") as ModelId,
           time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
           text: data.text,
         }])
       }
     } catch {
+      stopThinking()
       setMessages(p => [...p, {
-        id: Date.now() + 1, role: "assistant", model: "claude-sonnet" as ModelId,
+        id: Date.now() + 1, role: "assistant" as const, model: "claude-sonnet" as ModelId,
         time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
-        text: "⚠️ Impossible de contacter le serveur. Vérifie ta connexion.",
+        text: "⚠️ Impossible de contacter le serveur.",
       }])
     }
-
-    setIsTyping(false)
   }
 
   const getModel = (id?: ModelId) => MODELS.find(m => m.id === id)
@@ -169,7 +247,6 @@ export default function ChatPage() {
         </div>
       </header>
 
-      {/* Models panel */}
       {showModels && (
         <div className="bg-white border-b border-[var(--maestro-border)] px-4 py-3 flex flex-wrap gap-1.5 shrink-0">
           {MODELS.map(m => (
@@ -177,7 +254,6 @@ export default function ChatPage() {
               style={{ background: `${m.color}08`, borderColor: `${m.color}20` }}>
               <span>{m.icon}</span>
               <span className="font-semibold" style={{ color: m.color }}>{m.name}</span>
-              <span className="text-[var(--maestro-muted)] text-[10px]">· {m.specialty}</span>
             </div>
           ))}
         </div>
@@ -204,7 +280,7 @@ export default function ChatPage() {
 
             {msg.role === "assistant" && (() => {
               const m = getModel(msg.model)
-              const { text, artifact } = parseResponse(msg.text)
+              const { cleanText, artifacts } = parseResponse(msg.text)
               return (
                 <div className="flex gap-2.5">
                   <div className="w-7 h-7 rounded-lg bg-[var(--maestro-surface)] flex items-center justify-center shrink-0 mt-0.5">
@@ -221,8 +297,10 @@ export default function ChatPage() {
                       <span className="text-[10px] text-[var(--maestro-muted)] font-mono">{msg.time}</span>
                     </div>
                     <div className="bg-white rounded-[4px_16px_16px_16px] p-4 border border-[var(--maestro-border)] shadow-sm">
-                      <div className="text-[14px] text-gray-700 leading-relaxed whitespace-pre-line">{text}</div>
-                      {artifact && <ArtifactRenderer code={artifact.code} title={artifact.title} />}
+                      {cleanText && <div className="text-[14px] text-gray-700 leading-relaxed whitespace-pre-line">{cleanText}</div>}
+                      {artifacts.map((a, i) => (
+                        <ArtifactRenderer key={i} code={a.code} title={a.title} />
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -231,22 +309,8 @@ export default function ChatPage() {
           </div>
         ))}
 
-        {isTyping && (
-          <div className="flex gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-[var(--maestro-surface)] flex items-center justify-center shrink-0">
-              <MaestroLogo size={18} />
-            </div>
-            <div className="bg-white rounded-2xl px-4 py-3 border border-[var(--maestro-border)]">
-              <div className="flex gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-[var(--maestro-accent)] animate-bounce" style={{ animationDelay: "0ms" }} />
-                <div className="w-2 h-2 rounded-full bg-[var(--maestro-accent)] animate-bounce" style={{ animationDelay: "150ms" }} />
-                <div className="w-2 h-2 rounded-full bg-[var(--maestro-accent)] animate-bounce" style={{ animationDelay: "300ms" }} />
-              </div>
-            </div>
-          </div>
-        )}
+        {isTyping && <ThinkingIndicator step={thinkingStep} />}
 
-        {/* Suggestions when conversation is short */}
         {messages.length <= 1 && !isTyping && (
           <div className="mt-4">
             <div className="text-[12px] font-semibold text-[var(--maestro-muted)] mb-3">Suggestions :</div>
@@ -270,9 +334,9 @@ export default function ChatPage() {
           <input type="text" placeholder="Parle à Maestro..."
             value={input} onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === "Enter" && !e.shiftKey && send()}
-            className="flex-1 border-[1.5px] border-[var(--maestro-border)] rounded-xl px-4 py-3 text-[14px] outline-none bg-[var(--maestro-cream)] text-[var(--maestro-primary)] placeholder:text-[var(--maestro-muted)] focus:border-[var(--maestro-accent)] transition-colors" />
-          <button onClick={() => send()}
             disabled={isTyping}
+            className="flex-1 border-[1.5px] border-[var(--maestro-border)] rounded-xl px-4 py-3 text-[14px] outline-none bg-[var(--maestro-cream)] text-[var(--maestro-primary)] placeholder:text-[var(--maestro-muted)] focus:border-[var(--maestro-accent)] transition-colors disabled:opacity-50" />
+          <button onClick={() => send()} disabled={isTyping}
             className="bg-[var(--maestro-primary)] text-white w-11 h-11 rounded-xl flex items-center justify-center text-lg shrink-0 hover:bg-[var(--maestro-primary-light)] transition-colors disabled:opacity-50">
             →
           </button>
