@@ -103,6 +103,7 @@ export default function Dashboard() {
   const [toast, setToast] = useState<string | null>(null)
   const [tab, setTab] = useState<"missions" | "validations" | "activite">("missions")
   const [processing, setProcessing] = useState<string | null>(null)
+  const [connected, setConnected] = useState<boolean | null>(null)
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 4000) }
   const now = () => new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
@@ -138,6 +139,15 @@ export default function Dashboard() {
     const interval = setInterval(fetchData, 30000)
     return () => clearInterval(interval)
   }, [fetchData])
+
+  useEffect(() => {
+    const checkConnection = () => {
+      fetch("/api/health").then(r => setConnected(r.ok)).catch(() => setConnected(false))
+    }
+    checkConnection()
+    const interval = setInterval(checkConnection, 60000)
+    return () => clearInterval(interval)
+  }, [])
 
   const handleCommand = async () => {
     const command = cmd.trim()
@@ -204,6 +214,14 @@ export default function Dashboard() {
 
       <Header subtitle="ORCHESTRATEUR IA" rightContent={
         <>
+          {connected !== null && (
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full ${connected ? "bg-white/10" : "bg-red-500/20"}`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-green-400 animate-pulse-dot" : "bg-red-400"}`} />
+              <span className={`text-[10px] font-semibold ${connected ? "text-white/80" : "text-red-300"}`}>
+                {connected ? "Connecté" : "Hors ligne"}
+              </span>
+            </div>
+          )}
           {approvals.length > 0 && (
             <button onClick={() => setTab("validations")} className="bg-red-500 text-white text-[11px] font-bold font-mono px-2.5 py-1 rounded-full touch-target flex items-center justify-center animate-pulse-dot">
               {approvals.length}

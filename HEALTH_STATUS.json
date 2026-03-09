@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-03-09T14:30:00.277Z",
+  "alive": true,
+  "checks": {
+    "serverRunning": true,
+    "apiResponding": true,
+    "missionsActive": 0,
+    "lastActivity": "aucune",
+    "goalsProgress": {
+      "total": 25,
+      "done": 11,
+      "percent": 44
+    },
+    "uptime": 1493.19320815
+  },
+  "actions": [
+    "waiting_for_orders",
+    "goals_incomplete"
+  ]
+}
