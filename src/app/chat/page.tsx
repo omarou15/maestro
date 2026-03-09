@@ -215,7 +215,48 @@ export default function ChatPage() {
       } else {
         // Step 1: Check memory
         setThinkStatus("🧠 Consultation de ta mémoire...")
-        const hist = [...messages.filter(m => m.role !== "system"), userMsg].map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.files ? `${m.text}\n[Fichiers: ${m.files.map(f=>f.name).join(", ")}]` : m.text }))
+
+        // Build message history with proper multimodal content
+        const hist = []
+        for (const m of [...messages.filter(m => m.role !== "system"), userMsg]) {
+          const role = m.role === "assistant" ? "assistant" : "user"
+          hist.push({ role, content: m.text || "" })
+        }
+
+        // Convert current attachments to base64 for vision
+        const imageBlocks: { type: string; source?: { type: string; media_type: string; data: string }; text?: string }[] = []
+        for (const file of attachments) {
+          if (file.type.startsWith("image/")) {
+            const base64 = await new Promise<string>((resolve) => {
+              const reader = new FileReader()
+              reader.onload = () => resolve((reader.result as string).split(",")[1])
+              reader.readAsDataURL(file)
+            })
+            imageBlocks.push({
+              type: "image",
+              source: { type: "base64", media_type: file.type, data: base64 }
+            })
+          } else {
+            // For non-image files, read as text if possible
+            try {
+              const text = await file.text()
+              imageBlocks.push({ type: "text", text: `[Contenu de ${file.name}]:\n${text.slice(0, 10000)}` })
+            } catch {
+              imageBlocks.push({ type: "text", text: `[Fichier: ${file.name} (${file.type})]` })
+            }
+          }
+        }
+
+        // If there are attachments, modify the last user message to include them
+        if (imageBlocks.length > 0) {
+          const lastMsg = hist[hist.length - 1]
+          const contentBlocks = [
+            ...imageBlocks,
+            { type: "text", text: lastMsg.content || "Analyse cette image." }
+          ]
+          hist[hist.length - 1] = { role: "user", content: contentBlocks as unknown as string }
+        }
+
         const compCtx = chatId ? await getCompactionContext(chatId) : null
 
         // Step 2: Call Claude
