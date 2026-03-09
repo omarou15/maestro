@@ -17,6 +17,7 @@ import { skillsPlugin } from "./plugins/skills.js"
 import { cronsPlugin } from "./plugins/crons.js"
 import { sandboxPlugin } from "./plugins/sandbox.js"
 import { configPlugin } from "./plugins/config.js"
+import { revenuePlugin } from "./plugins/revenue.js"
 
 dotenv.config()
 
@@ -285,6 +286,7 @@ async function boot() {
   await registerPlugin(skillsPlugin, app)
   await registerPlugin(sandboxPlugin, app)
   await registerPlugin(telegramPlugin, app)
+  await registerPlugin(revenuePlugin, app)
 
   server.listen(PORT, () => {
     const heartbeat = runHeartbeat()
