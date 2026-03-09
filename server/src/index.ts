@@ -2,13 +2,15 @@ import express from "express"
 import cors from "cors"
 import cron from "node-cron"
 import dotenv from "dotenv"
-import { spawnSync } from "child_process"
 import { createMission, getMissions, getMission, deleteMission, getApprovals, addApproval, resolveApproval, orchestrate, runAgent, getActivityLog } from "./lib/agentManager.js"
+import { runHeartbeat, getSelfAwareness } from "./crons/heartbeat.js"
+import { selfHeal, createBackup, checkGitStatus } from "./crons/resilience.js"
 
 dotenv.config()
 
 const app = express()
 const PORT = process.env.PORT || 4000
+const STARTED_AT = new Date().toISOString()
 
 app.use(cors({ origin: process.env.FRONTEND_URL || "*" }))
 app.use(express.json())
@@ -19,8 +21,18 @@ app.get("/health", (_, res) => {
     status: "ok",
     server: "maestro-core",
     time: new Date().toISOString(),
+    startedAt: STARTED_AT,
     missions: getMissions().length,
     uptime: process.uptime(),
+  })
+})
+
+// Self-awareness endpoint
+app.get("/api/self", (_, res) => {
+  res.json({
+    awareness: getSelfAwareness(),
+    heartbeat: runHeartbeat(),
+    git: checkGitStatus(),
   })
 })
 
@@ -47,7 +59,7 @@ app.delete("/api/missions/:id", (req, res) => {
   res.json({ ok: true })
 })
 
-// === ORCHESTRATE (main endpoint) ===
+// === ORCHESTRATE ===
 app.post("/api/orchestrate", async (req, res) => {
   try {
     const { message } = req.body
@@ -96,70 +108,63 @@ app.get("/api/activity", (_, res) => {
   res.json({ log: getActivityLog() })
 })
 
-// === SELF-MODIFY (Maestro modifie son propre code) ===
-app.post("/api/self-modify", (req, res) => {
-  const { prompt } = req.body
-  if (!prompt) return res.status(400).json({ error: "prompt required" })
+// === CRON JOBS ===
 
-  console.log(`[SELF-MODIFY ${new Date().toISOString()}] "${prompt.slice(0, 80)}..."`)
-
-  const result = spawnSync(
-    "claude",
-    ["-p", prompt, "--dangerously-skip-permissions"],
-    { cwd: "/root/maestro", timeout: 180000, encoding: "utf8" }
-  )
-
-  if (result.error) {
-    console.error("[SELF-MODIFY] Error:", result.error.message)
-    return res.json({ success: false, error: result.error.message })
-  }
-
-  if (result.status !== 0) {
-    console.error("[SELF-MODIFY] Failed:", result.stderr)
-    return res.json({ success: false, error: result.stderr || "Modification échouée", output: result.stdout })
-  }
-
-  console.log(`[SELF-MODIFY] Done. Output: ${result.stdout.slice(0, 200)}`)
-  res.json({ success: true, output: result.stdout })
+// Heartbeat — every 5 minutes
+cron.schedule("*/5 * * * *", () => {
+  runHeartbeat()
 })
 
-// === CRON JOBS (24/7) ===
+// Self-heal — every 30 minutes
+cron.schedule("*/30 * * * *", () => {
+  selfHeal()
+})
 
-// Every 30 minutes: check email missions
-cron.schedule("*/30 * * * *", async () => {
-  console.log(`[CRON ${new Date().toISOString()}] Email check`)
+// Daily backup — every day at 3 AM
+cron.schedule("0 3 * * *", () => {
+  console.log("[CRON] Daily backup")
+  createBackup()
+})
+
+// Email check — every 30 minutes
+cron.schedule("*/30 * * * *", () => {
   const emailMissions = getMissions().filter(m => m.name.toLowerCase().includes("email") && m.status === "active")
-  for (const mission of emailMissions) {
-    const trieur = mission.agents.find(a => a.name === "Trieur")
-    if (trieur) {
-      mission.log.push({ time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }), agentId: trieur.id, agentIcon: trieur.icon, text: "Check emails automatique (cron 30min)", type: "auto" })
-    }
+  if (emailMissions.length > 0) {
+    console.log(`[CRON] Email check — ${emailMissions.length} missions`)
   }
 })
 
-// Every hour: check Monday tasks
-cron.schedule("0 * * * *", async () => {
-  console.log(`[CRON ${new Date().toISOString()}] Monday check`)
-  const equipeMissions = getMissions().filter(m => m.name.toLowerCase().includes("equipe") || m.name.toLowerCase().includes("monday"))
-  for (const mission of equipeMissions) {
-    const tracker = mission.agents.find(a => a.name === "Tracker")
-    if (tracker) {
-      mission.log.push({ time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }), agentId: tracker.id, agentIcon: tracker.icon, text: "Synchro Monday automatique (cron 1h)", type: "auto" })
-    }
+// Monday check — every hour
+cron.schedule("0 * * * *", () => {
+  const equipeMissions = getMissions().filter(m => (m.name.toLowerCase().includes("equipe") || m.name.toLowerCase().includes("monday")) && m.status === "active")
+  if (equipeMissions.length > 0) {
+    console.log(`[CRON] Monday check — ${equipeMissions.length} missions`)
   }
 })
 
-// Every morning at 7:00 AM Paris time: briefing
-cron.schedule("0 7 * * *", async () => {
-  console.log(`[CRON ${new Date().toISOString()}] Morning briefing`)
-  // Will generate briefing when Gmail/Monday APIs are connected
+// Morning briefing — 7 AM Paris time (6 AM UTC in winter, 5 AM UTC in summer)
+cron.schedule("0 6 * * *", () => {
+  console.log("[CRON] Morning briefing generation")
 })
 
 app.listen(PORT, () => {
+  // Initial heartbeat
+  const heartbeat = runHeartbeat()
+  
+  // Initial backup
+  createBackup()
+
   console.log(`
 🎯 Maestro Core running on port ${PORT}
-📡 API: http://localhost:${PORT}/api
-⏰ Crons: emails/30min, Monday/1h, briefing/7h
-🤖 Ready to orchestrate agents
+💓 Heartbeat: every 5 minutes
+🛡️ Self-heal: every 30 minutes
+💾 Backup: daily at 3 AM
+📧 Email check: every 30 minutes
+📊 Monday check: every hour
+☀️ Morning briefing: 7 AM Paris
+
+${getSelfAwareness()}
+
+🤖 Maestro is ALIVE.
   `)
 })
