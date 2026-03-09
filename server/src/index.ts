@@ -12,6 +12,7 @@ import { initGateway, getConnectedClients } from "./gateway.js"
 import { fire, EVENTS } from "./hooks.js"
 import { registerPlugin, getPlugins } from "./plugins/registry.js"
 import { telegramPlugin } from "./plugins/telegram.js"
+import { activityMiddleware, runSurvivalLoop, getVitalSigns } from "./survival.js"
 import { skillsPlugin } from "./plugins/skills.js"
 import { cronsPlugin } from "./plugins/crons.js"
 import { sandboxPlugin } from "./plugins/sandbox.js"
@@ -30,9 +31,11 @@ initGateway(server)
 app.use(cors({ origin: process.env.FRONTEND_URL || "*" }))
 app.use(express.json())
 
+app.use(activityMiddleware)
 // === CORE ROUTES ===
 
 // Health check
+app.get("/api/survival", (_, res) => res.json(getVitalSigns()))
 app.get("/health", (_, res) => {
   res.json({
     status: "ok",
@@ -258,6 +261,9 @@ ${getSelfAwareness()}
     `)
   })
 }
+
+setTimeout(() => runSurvivalLoop().catch(console.error), 30000)
+setInterval(() => runSurvivalLoop().catch(console.error), 10 * 60 * 1000)
 
 boot().catch(e => {
   console.error("Boot failed:", e)

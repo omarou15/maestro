@@ -15,7 +15,7 @@
     "schedule": "*/30 * * * *",
     "description": "Auto-réparation et vérification des services",
     "active": true,
-    "lastRun": "2026-03-09T22:00:00.712Z",
+    "lastRun": "2026-03-09T22:30:00.999Z",
     "lastStatus": "ok"
   },
   {
@@ -31,7 +31,7 @@
     "schedule": "*/30 * * * *",
     "description": "Vérifie les missions email actives",
     "active": true,
-    "lastRun": "2026-03-09T22:00:00.713Z",
+    "lastRun": "2026-03-09T22:30:00.999Z",
     "lastStatus": "ok",
     "lastOutput": "0 missions email actives"
   },
