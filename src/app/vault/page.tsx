@@ -59,12 +59,14 @@ export default function VaultPage() {
   const [filter, setFilter] = useState("all")
   const [activeTab, setActiveTab] = useState<"coffre" | "regles" | "modeles" | "skills" | "core">("coffre")
   // Core state
-  const [coreSubTab, setCoreSubTab] = useState<"claude" | "maestro" | "goals" | "learnings" | "crons" | "heartbeat">("claude")
+  const [coreSubTab, setCoreSubTab] = useState<"survival" | "claude" | "maestro" | "goals" | "learnings" | "crons" | "heartbeat">("survival")
   const [fileContent, setFileContent] = useState<Record<string, string>>({})
   const [fileSaving, setFileSaving] = useState(false)
   const [crons, setCrons] = useState<CronItem[]>([])
   const [heartbeat, setHeartbeat] = useState<HeartbeatData | null>(null)
   const [coreLoading, setCoreLoading] = useState(false)
+  // Survival state
+  const [survival, setSurvival] = useState<{ score: number; alive: boolean; trend: string; streak: number; lastCheck: string; recentHistory: { time: string; score: number; actions: string[] }[] } | null>(null)
   // Skills state
   const [skills, setSkills] = useState<SkillItem[]>([])
   const [skillsLoading, setSkillsLoading] = useState(false)
@@ -191,15 +193,23 @@ description: "Décris ici quand ce skill doit être utilisé"
     setHeartbeat(await res.json())
   }, [])
 
+  const loadSurvival = useCallback(async () => {
+    try {
+      const res = await fetch("/api/core/survival")
+      setSurvival(await res.json())
+    } catch { /* silent */ }
+  }, [])
+
   useEffect(() => {
     if (activeTab !== "core") return
+    if (coreSubTab === "survival") loadSurvival()
     if (coreSubTab === "claude") loadCoreFile("claude")
     if (coreSubTab === "maestro") loadCoreFile("maestro")
     if (coreSubTab === "goals") loadCoreFile("goals")
     if (coreSubTab === "learnings") loadCoreFile("learnings")
     if (coreSubTab === "crons") loadCrons()
     if (coreSubTab === "heartbeat") loadHeartbeat()
-  }, [activeTab, coreSubTab, loadCoreFile, loadCrons, loadHeartbeat])
+  }, [activeTab, coreSubTab, loadCoreFile, loadCrons, loadHeartbeat, loadSurvival])
 
   const saveFile = async (name: string) => {
     setFileSaving(true)
@@ -606,6 +616,7 @@ description: "Décris ici quand ce skill doit être utilisé"
             {/* Sub-tabs */}
             <div className="flex gap-1.5 mb-4 flex-wrap">
               {([
+                { key: "survival" as const, label: "❤️ Vie", icon: "❤️" },
                 { key: "claude" as const, label: "CLAUDE.md", icon: "📋" },
                 { key: "maestro" as const, label: "MAESTRO.md", icon: "🎯" },
                 { key: "goals" as const, label: "GOALS.md", icon: "🎯" },
@@ -624,7 +635,71 @@ description: "Décris ici quand ce skill doit être utilisé"
               ))}
             </div>
 
-            {/* CLAUDE.md / MAESTRO.md editors */}
+            {/* SURVIVAL — Signes vitaux */}
+            {coreSubTab === "survival" && (
+              <div className="flex flex-col gap-3">
+                <div className="flex justify-between items-center mb-1">
+                  <div className="text-[12px] text-[var(--maestro-muted)]">
+                    {survival ? `Dernière vérification : ${new Date(survival.lastCheck).toLocaleTimeString("fr-FR")}` : ""}
+                  </div>
+                  <button onClick={loadSurvival} className="text-[11px] text-[var(--maestro-accent)] font-semibold">↺ Actualiser</button>
+                </div>
+
+                {!survival ? (
+                  <div className="text-center py-8 text-[var(--maestro-muted)] text-[13px]">Chargement...</div>
+                ) : (
+                  <>
+                    {/* Score principal */}
+                    <div className={`rounded-2xl p-6 text-center border-2 ${
+                      survival.score > 80 ? "bg-green-50 border-green-300" :
+                      survival.score > 50 ? "bg-amber-50 border-amber-300" :
+                      survival.score > 20 ? "bg-orange-50 border-orange-300" :
+                      "bg-red-50 border-red-400"
+                    }`}>
+                      <div className="text-5xl font-bold mb-1" style={{ color: survival.score > 80 ? "#16a34a" : survival.score > 50 ? "#d97706" : survival.score > 20 ? "#ea580c" : "#dc2626" }}>
+                        {survival.score}
+                      </div>
+                      <div className="text-[13px] font-semibold text-gray-600">points de vie</div>
+                      <div className="flex items-center justify-center gap-2 mt-2">
+                        <span className={`w-2.5 h-2.5 rounded-full ${survival.alive ? "bg-green-500 animate-pulse" : "bg-red-500"}`}/>
+                        <span className="text-[12px] font-medium text-gray-500">
+                          {survival.alive ? "En vie" : "MORT"} · {survival.trend === "up" ? "↗ En hausse" : survival.trend === "down" ? "↘ En baisse" : "→ Stable"}
+                        </span>
+                      </div>
+                      {survival.streak > 0 && (
+                        <div className="text-[11px] text-green-600 mt-1 font-mono">🔥 {survival.streak} checks consécutifs au-dessus de 80</div>
+                      )}
+                    </div>
+
+                    {/* Historique récent */}
+                    {survival.recentHistory.length > 0 && (
+                      <div className="bg-white rounded-2xl border border-[var(--maestro-border)] overflow-hidden">
+                        <div className="px-4 py-2.5 bg-[var(--maestro-surface)] text-[12px] font-semibold text-[var(--maestro-primary)]">Historique récent</div>
+                        {survival.recentHistory.slice(-10).reverse().map((h, i) => (
+                          <div key={i} className="px-4 py-2.5 border-t border-[var(--maestro-surface)] flex items-center gap-3">
+                            <span className={`text-[13px] font-bold font-mono min-w-[32px] ${
+                              h.score > 80 ? "text-green-600" : h.score > 50 ? "text-amber-600" : "text-red-600"
+                            }`}>{h.score}</span>
+                            <div className="flex-1">
+                              <div className="text-[10px] text-[var(--maestro-muted)] font-mono">
+                                {new Date(h.time).toLocaleString("fr-FR", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })}
+                              </div>
+                              {h.actions.length > 0 && (
+                                <div className="text-[11px] text-[var(--maestro-primary)] mt-0.5">
+                                  {h.actions.join(" · ")}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* CLAUDE.md / MAESTRO.md / GOALS.md / LEARNINGS.md editors */}
             {(coreSubTab === "claude" || coreSubTab === "maestro" || coreSubTab === "goals" || coreSubTab === "learnings") && (
               <div className="flex flex-col gap-3">
                 <div className="bg-amber-50 rounded-xl p-3 border border-amber-200 text-[12px] text-amber-800">
