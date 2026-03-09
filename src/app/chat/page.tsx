@@ -17,7 +17,6 @@ const MODELS = [
   { id: "gemini", name: "Gemini 2.5", icon: "💎", color: "#3B82F6" },
   { id: "dalle", name: "DALL-E 3", icon: "🎨", color: "#EC4899" },
 ]
-const THINKING = [["Analyse", "🔍"], ["Modèle IA", "🧠"], ["Agent", "🤖"], ["Exécution", "⚡"]]
 const SUGGESTIONS = ["📧 Emails importants", "👥 Point équipe", "💻 Dashboard audits", "🛒 Courses", "📊 Rapport mensuel", "📅 Ma journée"]
 
 function renderMd(t: string) {
@@ -65,7 +64,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<StoredMessage[]>([])
   const [chatId, setChatId] = useState<string | null>(null)
   const [isTyping, setIsTyping] = useState(false)
-  const [thinkStep, setThinkStep] = useState(0)
+  const [thinkStatus, setThinkStatus] = useState("")
   const [copiedId, setCopiedId] = useState<number | null>(null)
   const [attachments, setAttachments] = useState<File[]>([])
   const [toast, setToast] = useState<string | null>(null)
@@ -73,7 +72,6 @@ export default function ChatPage() {
   const [loaded, setLoaded] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-  const thinkRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -124,12 +122,12 @@ export default function ChatPage() {
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
   }, [messages, chatId, loaded])
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }) }, [messages, isTyping, thinkStep])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }) }, [messages, isTyping, thinkStatus])
 
   const showToastMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
-  const startThink = () => { setIsTyping(true); setThinkStep(0); let s = 0; thinkRef.current = setInterval(() => { s++; if (s < 4) setThinkStep(s) }, 1200) }
-  const stopThink = () => { setIsTyping(false); setThinkStep(0); if (thinkRef.current) { clearInterval(thinkRef.current); thinkRef.current = null } }
+  const startThink = (status: string) => { setIsTyping(true); setThinkStatus(status) }
+  const stopThink = () => { setIsTyping(false); setThinkStatus("") }
 
   // AUTO-COMPACT: triggered after assistant responds
   const autoCompact = async (updatedMessages: StoredMessage[]) => {
@@ -158,15 +156,21 @@ export default function ChatPage() {
     const now = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
     const fileInfo = attachments.map(f => ({ name: f.name, type: f.type, size: `${(f.size/1024).toFixed(1)}KB` }))
     const userMsg: StoredMessage = { id: Date.now(), role: "user", text: msgText, time: now, files: fileInfo.length > 0 ? fileInfo : undefined }
-    setMessages(p => [...p, userMsg])
+
+    // IMMEDIATE SAVE — persist user message right away before AI responds
+    const updatedMsgs = [...messages, userMsg]
+    setMessages(updatedMsgs)
     setInput(""); setAttachments([])
-    startThink()
+    if (chatId) await updateChat(chatId, updatedMsgs, "Maestro")
+
+    startThink("Réception de ton message...")
 
     const controller = new AbortController(); abortRef.current = controller
     try {
       let assistantMsg: StoredMessage
 
       if (codeMode) {
+        setThinkStatus("🖥️ Envoi à Claude Code sur Hetzner...")
         const res = await fetch("/api/code", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -181,21 +185,32 @@ export default function ChatPage() {
           text: data.success ? (data.output || "✅ Claude Code a exécuté la tâche.") : `⚠️ ${data.error || "Erreur Claude Code"}`,
         }
       } else {
+        // Step 1: Check memory
+        setThinkStatus("🧠 Consultation de ta mémoire...")
         const hist = [...messages.filter(m => m.role !== "system"), userMsg].map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.files ? `${m.text}\n[Fichiers: ${m.files.map(f=>f.name).join(", ")}]` : m.text }))
         const compCtx = chatId ? await getCompactionContext(chatId) : null
+
+        // Step 2: Call Claude
+        setThinkStatus("⚡ Claude Sonnet réfléchit...")
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ messages: hist, compactionContext: compCtx }),
           signal: controller.signal,
         })
+
+        setThinkStatus("📝 Rédaction de la réponse...")
         const data = await res.json()
         stopThink()
+
+        const usage = data.usage ? { input: data.usage.input_tokens || 0, output: data.usage.output_tokens || 0 } : undefined
+
         assistantMsg = {
           id: Date.now() + 1, role: "assistant",
           model: data.model || "claude-sonnet",
           time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
           text: data.error ? "⚠️ Erreur. Réessaie." : data.text,
+          tokens: usage,
         }
         // Memory extraction in background
         fetch("/api/memory/extract", {
@@ -295,6 +310,11 @@ export default function ChatPage() {
                           </button>
                           <button onClick={() => { const prev = messages.slice(0, messages.indexOf(msg)).reverse().find(m=>m.role==="user"); if(prev) { setMessages(p=>p.filter(m=>m.id!==msg.id)); send(prev.text) }}}
                             className="text-[10px] text-[var(--maestro-muted)] hover:text-[var(--maestro-primary)] px-1.5 py-0.5 rounded hover:bg-[var(--maestro-surface)] transition-colors">🔄 Retry</button>
+                          {msg.tokens && (
+                            <span className="text-[9px] text-[var(--maestro-muted)] font-mono ml-auto">
+                              ↑{msg.tokens.input} ↓{msg.tokens.output} tokens
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -306,7 +326,11 @@ export default function ChatPage() {
           {isTyping && (
             <div className="flex gap-2"><div className="w-6 h-6 rounded-lg bg-[var(--maestro-surface)] flex items-center justify-center shrink-0"><MaestroLogo size={16}/></div>
               <div className="bg-white rounded-2xl px-3.5 py-2.5 border border-[var(--maestro-border)] min-w-[180px]">
-                {THINKING.map(([l,ic],i) => <div key={i} className={`flex items-center gap-1.5 text-[11px] mb-0.5 ${i<thinkStep?"text-green-600":i===thinkStep?"text-[var(--maestro-accent)]":"text-gray-300"}`}><span className="w-4 text-center text-xs">{i<thinkStep?"✅":i===thinkStep?ic:"○"}</span><span className={i===thinkStep?"font-semibold":""}>{l}</span>{i===thinkStep&&<span className="flex gap-0.5 ml-0.5">{[0,1,2].map(j=><span key={j} className="w-1 h-1 rounded-full bg-[var(--maestro-accent)] animate-bounce" style={{animationDelay:`${j*150}ms`}}/>)}</span>}</div>)}
+                <div className="flex items-center gap-2 text-[12px] text-[var(--maestro-primary)]">
+                  <span className="flex gap-0.5">{[0,1,2].map(j=><span key={j} className="w-1.5 h-1.5 rounded-full bg-[var(--maestro-accent)] animate-bounce" style={{animationDelay:`${j*150}ms`}}/>)}</span>
+                  <span className="font-medium">{thinkStatus}</span>
+                </div>
+                <div className="text-[10px] text-[var(--maestro-muted)] mt-1">Tu peux quitter, ton message est sauvé</div>
               </div>
             </div>
           )}

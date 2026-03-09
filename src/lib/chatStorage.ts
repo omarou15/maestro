@@ -8,6 +8,7 @@ export type StoredMessage = {
   time: string
   model?: string
   files?: { name: string; type: string; size: string }[]
+  tokens?: { input: number; output: number }
 }
 
 export type ChatSession = {
