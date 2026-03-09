@@ -41,20 +41,26 @@ export async function POST(req: NextRequest) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  await ensureSchema()
-  const sql = getDb()
-  const body = await req.json()
-  const id = body.id || `chat_${Date.now()}`
-  const title = body.title || "Nouvelle conversation"
-  const now = new Date().toISOString()
+  try {
+    await ensureSchema()
+    const sql = getDb()
+    const body = await req.json()
+    const id = body.id || `chat_${Date.now()}`
+    const title = body.title || "Nouvelle conversation"
+    const now = new Date().toISOString()
 
-  await sql`
-    INSERT INTO conversations (id, user_id, title, messages, message_count, created_at, updated_at)
-    VALUES (${id}, ${userId}, ${title}, '[]'::jsonb, 0, ${now}, ${now})
-  `
+    await sql`
+      INSERT INTO conversations (id, user_id, title, messages, message_count, created_at, updated_at)
+      VALUES (${id}, ${userId}, ${title}, '[]'::jsonb, 0, ${now}, ${now})
+      ON CONFLICT (id) DO NOTHING
+    `
 
-  return NextResponse.json({
-    id, title, messages: [], compactedMemory: null,
-    messageCount: 0, createdAt: now, updatedAt: now,
-  })
+    return NextResponse.json({
+      id, title, messages: [], compactedMemory: null,
+      messageCount: 0, createdAt: now, updatedAt: now,
+    })
+  } catch (e) {
+    console.error("Create conversation error:", e)
+    return NextResponse.json({ error: "Database error" }, { status: 500 })
+  }
 }

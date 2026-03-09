@@ -145,14 +145,19 @@ export default function ChatPage() {
   }
 
   const newChat = async () => {
-    const chat = await createChat()
-    setChatId(chat.id)
-    const welcomeMsg: StoredMessage = { id: 0, role: "system", text: "👋 Nouvelle conversation. Que veux-tu accomplir ?", time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) }
-    setMessages([welcomeMsg])
-    await updateChat(chat.id, [welcomeMsg])
-    setAttachments([])
-    setShowHistory(false)
-    refreshChatList()
+    try {
+      const chat = await createChat()
+      setChatId(chat.id)
+      const welcomeMsg: StoredMessage = { id: 0, role: "system", text: "👋 Nouvelle conversation. Que veux-tu accomplir ?", time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) }
+      setMessages([welcomeMsg])
+      await updateChat(chat.id, [welcomeMsg])
+      setAttachments([])
+      setShowHistory(false)
+      refreshChatList()
+    } catch (e) {
+      console.error("newChat error:", e)
+      showToastMsg("⚠️ Erreur création conversation")
+    }
   }
 
   const delChat = async (id: string) => {

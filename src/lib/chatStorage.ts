@@ -50,33 +50,50 @@ function clearActiveChatId() {
   localStorage.removeItem("maestro_active_chat")
 }
 
-// API calls
+// API calls with proper error handling
 export async function getAllChats(): Promise<ChatSession[]> {
-  const res = await fetch("/api/conversations")
-  if (!res.ok) return []
-  return res.json()
+  try {
+    const res = await fetch("/api/conversations")
+    if (!res.ok) { console.error("getAllChats failed:", res.status); return [] }
+    return await res.json()
+  } catch (e) { console.error("getAllChats error:", e); return [] }
 }
 
 export async function getChat(id: string): Promise<ChatSession | null> {
-  const res = await fetch(`/api/conversations/${id}`)
-  if (!res.ok) return null
-  return res.json()
+  try {
+    const res = await fetch(`/api/conversations/${id}`)
+    if (!res.ok) { console.error("getChat failed:", res.status); return null }
+    return await res.json()
+  } catch (e) { console.error("getChat error:", e); return null }
 }
 
 export async function createChat(): Promise<ChatSession> {
-  const id = `chat_${Date.now()}`
-  const res = await fetch("/api/conversations", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id }),
-  })
-  const chat = await res.json()
-  setActiveChatId(chat.id)
-  return chat
+  const id = `chat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  try {
+    const res = await fetch("/api/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const chat = await res.json()
+    if (chat.error) throw new Error(chat.error)
+    setActiveChatId(chat.id)
+    return chat
+  } catch (e) {
+    console.error("createChat error:", e)
+    // Fallback: return a local-only chat so the UI doesn't break
+    const fallback: ChatSession = {
+      id, title: "Nouvelle conversation", messages: [],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      messageCount: 0,
+    }
+    setActiveChatId(id)
+    return fallback
+  }
 }
 
-export async function updateChat(id: string, messages: StoredMessage[], title?: string) {
-  // Auto-title from first user message
+export async function updateChat(id: string, messages: StoredMessage[], title?: string): Promise<boolean> {
   let autoTitle = title
   if (!autoTitle) {
     const firstUser = messages.find(m => m.role === "user")
@@ -84,16 +101,23 @@ export async function updateChat(id: string, messages: StoredMessage[], title?: 
       autoTitle = firstUser.text.substring(0, 50) + (firstUser.text.length > 50 ? "..." : "")
     }
   }
-  await fetch(`/api/conversations/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, title: autoTitle }),
-  })
+  try {
+    const res = await fetch(`/api/conversations/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, title: autoTitle }),
+    })
+    if (!res.ok) { console.error("updateChat failed:", res.status); return false }
+    return true
+  } catch (e) { console.error("updateChat error:", e); return false }
 }
 
-export async function deleteChat(id: string) {
-  await fetch(`/api/conversations/${id}`, { method: "DELETE" })
-  if (getActiveChatId() === id) clearActiveChatId()
+export async function deleteChat(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/conversations/${id}`, { method: "DELETE" })
+    if (getActiveChatId() === id) clearActiveChatId()
+    return res.ok
+  } catch (e) { console.error("deleteChat error:", e); return false }
 }
 
 export function shouldCompact(messages: StoredMessage[]): boolean {

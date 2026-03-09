@@ -38,33 +38,38 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  await ensureSchema()
-  const sql = getDb()
-  const body = await req.json()
-  const now = new Date().toISOString()
+  try {
+    await ensureSchema()
+    const sql = getDb()
+    const body = await req.json()
+    const now = new Date().toISOString()
 
-  if (body.compactedMemory !== undefined) {
-    await sql`
-      UPDATE conversations
-      SET messages = ${JSON.stringify(body.messages)}::jsonb,
-          title = COALESCE(${body.title || null}, title),
-          compacted_memory = ${JSON.stringify(body.compactedMemory)}::jsonb,
-          message_count = ${body.messages?.length || 0},
-          updated_at = ${now}
-      WHERE id = ${params.id} AND user_id = ${userId}
-    `
-  } else {
-    await sql`
-      UPDATE conversations
-      SET messages = ${JSON.stringify(body.messages)}::jsonb,
-          title = COALESCE(${body.title || null}, title),
-          message_count = ${body.messages?.length || 0},
-          updated_at = ${now}
-      WHERE id = ${params.id} AND user_id = ${userId}
-    `
+    if (body.compactedMemory !== undefined) {
+      await sql`
+        UPDATE conversations
+        SET messages = ${JSON.stringify(body.messages)}::jsonb,
+            title = COALESCE(${body.title || null}, title),
+            compacted_memory = ${JSON.stringify(body.compactedMemory)}::jsonb,
+            message_count = ${body.messages?.length || 0},
+            updated_at = ${now}
+        WHERE id = ${params.id} AND user_id = ${userId}
+      `
+    } else {
+      await sql`
+        UPDATE conversations
+        SET messages = ${JSON.stringify(body.messages)}::jsonb,
+            title = COALESCE(${body.title || null}, title),
+            message_count = ${body.messages?.length || 0},
+            updated_at = ${now}
+        WHERE id = ${params.id} AND user_id = ${userId}
+      `
+    }
+
+    return NextResponse.json({ ok: true })
+  } catch (e) {
+    console.error("Update conversation error:", e)
+    return NextResponse.json({ error: "Database error" }, { status: 500 })
   }
-
-  return NextResponse.json({ ok: true })
 }
 
 // DELETE /api/conversations/[id]

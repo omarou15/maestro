@@ -267,7 +267,7 @@ export async function POST(req: NextRequest) {
       const textBlock = data.content.find((c: any) => c.type === "text")
 
       // No more tool calls — we have our final answer
-      if (toolUses.length === 0 || data.stop_reason === "end_turn") {
+      if (toolUses.length === 0) {
         finalText = textBlock?.text || "Action effectuée."
         break
       }
