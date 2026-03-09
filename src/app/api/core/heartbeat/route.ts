@@ -10,7 +10,7 @@ export async function GET() {
 
   const [backendRes, dbRes] = await Promise.allSettled([
     fetch(`${BACKEND}/health`, { signal: AbortSignal.timeout(3000) }).then(r => r.json()),
-    getDb()`SELECT 1 as ok`.then(() => ({ ok: true })),
+    (async () => { const sql = getDb(); await sql`SELECT 1 as ok`; return { ok: true } })(),
   ])
 
   const backend = backendRes.status === "fulfilled" ? backendRes.value : null
