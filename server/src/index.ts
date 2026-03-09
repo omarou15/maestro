@@ -117,7 +117,7 @@ app.get("/api/activity", (_, res) => {
 app.post("/api/restart", (_, res) => {
   res.json({ ok: true, message: "Redémarrage dans 1 seconde..." })
   setTimeout(() => {
-    spawnSync("sudo", ["/bin/systemctl", "restart", "maestro-core"], { encoding: "utf8" })
+    spawnSync("systemctl", ["restart", "maestro-core"], { encoding: "utf8" })
   }, 1000)
 })
 
@@ -128,18 +128,15 @@ app.post("/api/self-modify", (req, res) => {
 
   console.log(`[SELF-MODIFY ${new Date().toISOString()}] "${prompt.slice(0, 80)}..."`)
 
-  const tmpFile = join(tmpdir(), `maestro-${Date.now()}.txt`)
-  try { writeFileSync(tmpFile, prompt) } catch (e) {
-    return res.json({ success: false, error: `Fichier tmp impossible: ${e}` })
-  }
+  // Direct execution via claude CLI
 
   const result = spawnSync(
-    "sudo",
-    ["-u", "maestro-cli", "/usr/local/bin/maestro-modify", tmpFile],
-    { cwd: "/root/maestro", timeout: 180000, encoding: "utf8" }
+    "claude",
+    ["-p", prompt, "--output-format", "text"],
+    { cwd: "/root/maestro", timeout: 180000, encoding: "utf8", env: { ...process.env, HOME: "/root" } }
   )
 
-  try { unlinkSync(tmpFile) } catch { /* ignore */ }
+  // No temp file needed
 
   if (result.error) return res.json({ success: false, error: result.error.message })
   if (result.status !== 0) return res.json({ success: false, error: result.stderr || "Échec", output: result.stdout })
