@@ -121,6 +121,21 @@ app.post("/api/restart", (_, res) => {
   }, 1000)
 })
 
+// === SELF-UPDATE (git pull + npm install + restart — no Claude Code needed) ===
+app.post("/api/update", (_, res) => {
+  try {
+    const pull = execSync("cd /root/maestro && git pull origin main 2>&1", { encoding: "utf8", timeout: 30000 })
+    const install = execSync("cd /root/maestro/server && npm install 2>&1", { encoding: "utf8", timeout: 60000 })
+    res.json({ ok: true, pull: pull.trim(), install: install.slice(-200) })
+    // Restart after response
+    setTimeout(() => {
+      spawnSync("systemctl", ["restart", "maestro-core"], { encoding: "utf8" })
+    }, 1000)
+  } catch (e) {
+    res.status(500).json({ error: String(e) })
+  }
+})
+
 // === SELF-MODIFY (Maestro modifie son propre code via claude CLI) ===
 app.post("/api/self-modify", (req, res) => {
   const { prompt } = req.body
