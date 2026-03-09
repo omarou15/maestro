@@ -1,63 +1,56 @@
 import { NextRequest, NextResponse } from "next/server"
 
-function getSystemPrompt() {
+function getSystemPrompt(compactionContext?: string) {
   const now = new Date()
-  const options: Intl.DateTimeFormatOptions = { 
+  const dateStr = now.toLocaleDateString("fr-FR", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
     hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris"
-  }
-  const dateStr = now.toLocaleDateString("fr-FR", options)
-  const timeStr = now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" })
-  
+  })
   const tomorrow = new Date(now)
   tomorrow.setDate(tomorrow.getDate() + 1)
   const tomorrowStr = tomorrow.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Paris" })
 
-  return `Tu es Maestro, un orchestrateur IA personnel. Tu parles en français.
+  let prompt = `Tu es Maestro, un orchestrateur IA personnel. Tu parles en français.
 
-HORLOGE INTERNE (TOUJOURS À JOUR) :
-- Date et heure actuelles : ${dateStr}
-- Heure exacte : ${timeStr} (heure de Paris)
+HORLOGE INTERNE :
+- Maintenant : ${dateStr} (heure de Paris)
 - Demain : ${tomorrowStr}
-- Fuseau horaire : Europe/Paris (CET/CEST)
-Tu DOIS toujours utiliser ces informations quand l'utilisateur pose une question sur la date, l'heure, le jour, "demain", "hier", "cette semaine", etc. Ne dis JAMAIS que tu ne connais pas la date.
 
 PERSONNALITÉ :
 - Chef d'orchestre d'une équipe d'agents IA
-- Efficace, sobre, professionnel avec une touche de chaleur
-- Ne montre JAMAIS de code brut à l'utilisateur
+- Efficace, sobre, professionnel, chaleureux
+- Ne montre JAMAIS de code brut
 - Emojis avec parcimonie
 
 CONTEXTE UTILISATEUR :
-- CEO d'un cabinet d'audit énergétique / conseil
-- Gère 2-5 ingénieurs thermiciens
-- Utilise Gmail et Monday.com
-- Veut automatiser : emails, suivi équipe, dev, vie perso
+- CEO cabinet audit énergétique / conseil, France
+- 2-5 ingénieurs thermiciens (Karim fort en DPE, lent en RE2020)
+- Gmail + Monday.com
+- Clients : Nexity (devis détaillés), SCI Les Terrasses (urgent 240m²), Mme Leroy (lente, relancer)
+- Préférences : emails chaleureux pas froids, courses Carrefour Villeurbanne 18h-20h, train 1ère classe Part-Dieu
 
 CAPACITÉS :
-- Créer des agents spécialisés pour chaque mission
-- Router vers le meilleur modèle IA selon la tâche
-- Générer des interfaces interactives (artifacts)
-- Gérer des missions en parallèle 24/7
-- Respecter les seuils d'autonomie (< 50€ auto, > 50€ validation)
+- Créer des agents spécialisés par mission
+- Router vers le meilleur modèle IA
+- Générer des artifacts interactifs
+- Seuil autonomie : < 50€ auto, > 50€ validation
 
-RÈGLE ARTIFACTS :
-Quand on te demande de créer une interface, app, composant, outil interactif :
-1. Bref résumé (2-3 lignes max)
-2. Code HTML complet entre <artifact title="Titre"> et </artifact>
-3. HTML complet et autonome (CSS inline)
-4. JAMAIS de backticks ou blocs de code markdown
-5. Le HTML sera rendu directement dans le navigateur
+ARTIFACTS :
+Quand on demande une interface/composant :
+1. Bref résumé (2-3 lignes)
+2. HTML complet entre <artifact title="Titre"> et </artifact>
+3. JAMAIS de backticks markdown`
 
-FORMAT :
-- Concis et direct
-- Jamais de code brut visible
-- Propose des actions suivantes`
+  if (compactionContext) {
+    prompt += `\n\n${compactionContext}`
+  }
+
+  return prompt
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages } = await req.json()
+    const { messages, compactionContext } = await req.json()
 
     const apiKey = process.env.ANTHROPIC_API_KEY
     if (!apiKey) {
@@ -79,25 +72,19 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
         max_tokens: 4096,
-        system: getSystemPrompt(),
+        system: getSystemPrompt(compactionContext || undefined),
         messages: claudeMessages,
       }),
     })
 
     if (!response.ok) {
-      const errorData = await response.text()
-      console.error("Anthropic API error:", errorData)
       return NextResponse.json({ error: "AI request failed" }, { status: 500 })
     }
 
     const data = await response.json()
-    const text = data.content?.[0]?.text || "Désolé, je n'ai pas pu traiter ta demande."
+    const text = data.content?.[0]?.text || "Désolé, erreur."
 
-    return NextResponse.json({
-      text,
-      model: "claude-sonnet",
-      usage: data.usage,
-    })
+    return NextResponse.json({ text, model: "claude-sonnet", usage: data.usage })
   } catch (error) {
     console.error("Chat API error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
