@@ -10,6 +10,7 @@ import { join } from "path"
 import { createMission, getMissions, getMission, deleteMission, getApprovals, addApproval, resolveApproval, orchestrate, runAgent, getActivityLog } from "./lib/agentManager.js"
 import { runHeartbeat, getSelfAwareness } from "./crons/heartbeat.js"
 import { selfHeal, createBackup, checkGitStatus } from "./crons/resilience.js"
+import { startTelegramBot } from "./telegram.js"
 
 dotenv.config()
 
@@ -424,6 +425,9 @@ app.listen(PORT, () => {
   
   // Initial backup
   createBackup()
+
+  // Start Telegram bot
+  startTelegramBot()
 
   console.log(`
 🎯 Maestro Core running on port ${PORT}
