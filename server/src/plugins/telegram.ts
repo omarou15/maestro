@@ -59,6 +59,11 @@ Quand Omar donne un ordre d'action, UTILISE TOUJOURS l'outil correspondant. Ne s
 
 const TOOLS: Anthropic.Tool[] = [
   {
+    name: "web_search",
+    description: "Recherche sur le web via DuckDuckGo. Retourne les titres, URLs et extraits des résultats.",
+    input_schema: { type: "object" as const, properties: { query: { type: "string", description: "La requête de recherche" } }, required: ["query"] },
+  },
+  {
     name: "orchestrate",
     description: "Lance une nouvelle mission ou donne un ordre à Maestro.",
     input_schema: { type: "object" as const, properties: { message: { type: "string" } }, required: ["message"] },
@@ -124,6 +129,14 @@ async function executeTool(name: string, input: any): Promise<string> {
       case "self_modify": {
         const res = await fetch(`${BACKEND}/api/self-modify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: input.prompt }), signal: AbortSignal.timeout(200000) })
         return JSON.stringify(await res.json())
+      }
+      case "web_search": {
+        const res = await fetch(`${BACKEND}/api/web-search?q=${encodeURIComponent(input.query)}`)
+        const data = await res.json()
+        if (!data.results?.length) return "Aucun résultat trouvé."
+        return data.results.map((r: {title: string; url: string; snippet: string}, i: number) =>
+          `${i+1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`
+        ).join("\n\n")
       }
       default:
         return JSON.stringify({ error: `Outil inconnu : ${name}` })

@@ -5,6 +5,21 @@
 import { getMissions, getActivityLog } from "../lib/agentManager.js"
 import { readFileSync, writeFileSync, existsSync } from "fs"
 
+const BACKEND = "http://localhost:4000"
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_ALLOWED_CHAT_ID
+
+async function sendTelegramAlert(message: string): Promise<void> {
+  if (!TELEGRAM_CHAT_ID) return
+  try {
+    await fetch(`${BACKEND}/api/telegram/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chatId: Number(TELEGRAM_CHAT_ID), message }),
+      signal: AbortSignal.timeout(5000),
+    })
+  } catch { /* silent — don't block heartbeat on network failure */ }
+}
+
 export type HealthStatus = {
   timestamp: string
   alive: boolean
@@ -89,6 +104,20 @@ export function runHeartbeat(): HealthStatus {
   try {
     writeFileSync("/root/maestro/HEALTH_STATUS.json", JSON.stringify(status, null, 2))
   } catch {}
+
+  // 5. Telegram alerts for important events
+  const alerts: string[] = []
+  if (status.actions.includes("waiting_for_orders")) {
+    alerts.push("⚠️ Maestro en attente — aucune mission active")
+  }
+  if (goalsProgress.percent < 30) {
+    alerts.push(`📋 Objectifs à seulement ${goalsProgress.percent}% — besoin d'attention`)
+  }
+  if (alerts.length > 0) {
+    const uptimeMin = Math.round(process.uptime() / 60)
+    const msg = `💓 Heartbeat Maestro\n${alerts.join("\n")}\nUptime: ${uptimeMin}min`
+    sendTelegramAlert(msg).catch(() => {})
+  }
 
   return status
 }

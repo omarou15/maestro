@@ -205,6 +205,45 @@ app.post("/api/self-modify", (req, res) => {
   res.json({ success: true, output: result.stdout })
 })
 
+// === WEB SEARCH ===
+app.get("/api/web-search", async (req, res) => {
+  const query = String(req.query.q || "").trim()
+  if (!query) return res.status(400).json({ error: "q required" })
+  try {
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`
+    const response = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; Maestro/1.0)" },
+      signal: AbortSignal.timeout(10000),
+    })
+    const html = await response.text()
+    const results: { title: string; url: string; snippet: string }[] = []
+    const linkRe = /<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g
+    const snippetRe = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g
+    const snippets: string[] = []
+    let sm: RegExpExecArray | null
+    while ((sm = snippetRe.exec(html)) !== null) {
+      snippets.push(sm[1].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#x27;/g, "'").trim())
+    }
+    let m: RegExpExecArray | null
+    let i = 0
+    while ((m = linkRe.exec(html)) !== null && results.length < 8) {
+      const rawUrl = m[1]
+      const title = m[2].replace(/<[^>]+>/g, "").trim()
+      if (!rawUrl || rawUrl.startsWith("//duckduckgo") || rawUrl.startsWith("/")) { i++; continue }
+      let cleanUrl = rawUrl
+      try {
+        const u = new URL(rawUrl)
+        cleanUrl = u.searchParams.get("uddg") || u.searchParams.get("u") || rawUrl
+      } catch { /* keep raw */ }
+      results.push({ title, url: cleanUrl, snippet: snippets[i] || "" })
+      i++
+    }
+    res.json({ query, results })
+  } catch (e) {
+    res.status(500).json({ error: `Web search failed: ${e}` })
+  }
+})
+
 // === FILES API ===
 const ALLOWED_FILES: Record<string, string> = {
   "claude": "/root/maestro/CLAUDE.md",
