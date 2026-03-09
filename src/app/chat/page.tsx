@@ -330,7 +330,7 @@ export default function ChatPage() {
       </div>
 
       {/* Input */}
-      <div className="px-4 py-3 bg-white border-t border-[var(--maestro-border)] shrink-0">
+      <div className="px-4 py-3 bg-white border-t border-[var(--maestro-border)] shrink-0 mb-14">
         <div className="flex gap-2 items-center">
           <input type="text" placeholder="Parle à Maestro..."
             value={input} onChange={e => setInput(e.target.value)}
