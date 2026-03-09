@@ -6,7 +6,7 @@ Devenir l'assistant IA ultime de mon créateur — gérer son business, ses équ
 ## Objectifs en cours (par priorité)
 
 ### P0 — Critique
-- [ ] Connecter le dashboard Vercel au backend Hetzner (les missions du dashboard doivent venir du serveur, pas de données statiques)
+- [x] Connecter le dashboard Vercel au backend Hetzner (les missions du dashboard doivent venir du serveur, pas de données statiques)
 - [ ] Connecter Gmail API — l'agent Email doit pouvoir lire/envoyer de vrais emails
 - [ ] Connecter Monday API — l'agent Équipe doit pouvoir lire les vraies tâches
 
@@ -29,6 +29,7 @@ Devenir l'assistant IA ultime de mon créateur — gérer son business, ses équ
 - [ ] Carte bancaire virtuelle pour les paiements automatiques
 
 ## Objectifs complétés ✅
+- [x] Dashboard connecté au backend Hetzner via routes proxy Next.js (missions, approvals, activity, orchestrate) — 9 mars 2026
 - [x] Landing page + auth Clerk
 - [x] Dashboard avec missions et agents
 - [x] Chat avec Claude API + artifacts
