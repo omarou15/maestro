@@ -1,11 +1,11 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { UserButton } from "@clerk/nextjs"
 import MaestroLogo from "@/components/MaestroLogo"
 import NavBar from "@/components/NavBar"
 import {
-  StoredMessage, getAllChats, getChat, createChat, updateChat, deleteChat,
+  StoredMessage, ChatSession, getAllChats, getChat, createChat, updateChat, deleteChat,
   getActiveChatId, setActiveChatId, shouldCompact, applyCompaction, getCompactionContext
 } from "@/lib/chatStorage"
 
@@ -72,30 +72,51 @@ export default function ChatPage() {
   const [attachments, setAttachments] = useState<File[]>([])
   const [compacting, setCompacting] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [allChats, setAllChats] = useState<ChatSession[]>([])
+  const [loaded, setLoaded] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const thinkRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [clock, setClock] = useState("")
   useEffect(() => { const u = () => setClock(new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })); u(); const i = setInterval(u, 30000); return () => clearInterval(i) }, [])
 
-  // Load or create chat on mount
-  useEffect(() => {
-    const activeId = getActiveChatId()
-    if (activeId) {
-      const chat = getChat(activeId)
-      if (chat) { setChatId(activeId); setMessages(chat.messages); return }
-    }
-    const newChat = createChat()
-    setChatId(newChat.id)
-    setMessages([{ id: 0, role: "system", text: "👋 Bienvenue sur Maestro. Dis-moi ce que tu veux accomplir.", time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) }])
+  const refreshChatList = useCallback(async () => {
+    const chats = await getAllChats()
+    setAllChats(chats)
   }, [])
 
-  // Save messages whenever they change
+  // Load or create chat on mount
   useEffect(() => {
-    if (chatId && messages.length > 0) updateChat(chatId, messages)
-  }, [messages, chatId])
+    async function init() {
+      const activeId = getActiveChatId()
+      if (activeId) {
+        const chat = await getChat(activeId)
+        if (chat) { setChatId(activeId); setMessages(chat.messages); setLoaded(true); refreshChatList(); return }
+      }
+      const newChatObj = await createChat()
+      setChatId(newChatObj.id)
+      const welcomeMsg: StoredMessage = { id: 0, role: "system", text: "👋 Bienvenue sur Maestro. Dis-moi ce que tu veux accomplir.", time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) }
+      setMessages([welcomeMsg])
+      await updateChat(newChatObj.id, [welcomeMsg])
+      setLoaded(true)
+      refreshChatList()
+    }
+    init()
+  }, [refreshChatList])
+
+  // Save messages whenever they change (debounced)
+  useEffect(() => {
+    if (!chatId || !loaded || messages.length === 0) return
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      updateChat(chatId, messages)
+      refreshChatList()
+    }, 500)
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
+  }, [messages, chatId, loaded, refreshChatList])
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }) }, [messages, isTyping, thinkStep])
 
@@ -104,22 +125,26 @@ export default function ChatPage() {
   const startThink = () => { setIsTyping(true); setThinkStep(0); let s = 0; thinkRef.current = setInterval(() => { s++; if (s < 4) setThinkStep(s) }, 1200) }
   const stopThink = () => { setIsTyping(false); setThinkStep(0); if (thinkRef.current) { clearInterval(thinkRef.current); thinkRef.current = null } }
 
-  const switchChat = (id: string) => {
-    const chat = getChat(id)
+  const switchChat = async (id: string) => {
+    const chat = await getChat(id)
     if (chat) { setChatId(id); setActiveChatId(id); setMessages(chat.messages); setShowHistory(false) }
   }
 
-  const newChat = () => {
-    const chat = createChat()
+  const newChat = async () => {
+    const chat = await createChat()
     setChatId(chat.id)
-    setMessages([{ id: 0, role: "system", text: "👋 Nouvelle conversation. Que veux-tu accomplir ?", time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) }])
+    const welcomeMsg: StoredMessage = { id: 0, role: "system", text: "👋 Nouvelle conversation. Que veux-tu accomplir ?", time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) }
+    setMessages([welcomeMsg])
+    await updateChat(chat.id, [welcomeMsg])
     setAttachments([])
     setShowHistory(false)
+    refreshChatList()
   }
 
-  const delChat = (id: string) => {
-    deleteChat(id)
-    if (id === chatId) newChat()
+  const delChat = async (id: string) => {
+    await deleteChat(id)
+    if (id === chatId) await newChat()
+    refreshChatList()
   }
 
   const doCompact = async () => {
@@ -134,7 +159,7 @@ export default function ChatPage() {
       const data = await res.json()
       if (data.compacted) {
         const compacted = { ...data.compacted, compactedAt: new Date().toISOString(), originalMessageCount: messages.length }
-        const newMsgs = applyCompaction(chatId, compacted, messages)
+        const newMsgs = await applyCompaction(chatId, compacted, messages)
         if (newMsgs) { setMessages(newMsgs); showToastMsg(`📦 ${messages.length} messages compactés → ${newMsgs.length} conservés`) }
       }
     } catch { showToastMsg("⚠️ Erreur de compaction") }
@@ -154,7 +179,7 @@ export default function ChatPage() {
     const controller = new AbortController(); abortRef.current = controller
     try {
       const hist = [...messages.filter(m => m.role !== "system"), userMsg].map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.files ? `${m.text}\n[Fichiers: ${m.files.map(f=>f.name).join(", ")}]` : m.text }))
-      const compCtx = chatId ? getCompactionContext(chatId) : null
+      const compCtx = chatId ? await getCompactionContext(chatId) : null
 
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -172,7 +197,6 @@ export default function ChatPage() {
       }
       setMessages(p => {
         const updated = [...p, assistantMsg]
-        // Auto-compact suggestion
         if (shouldCompact(updated)) showToastMsg("💡 Conversation longue — pense à compacter (bouton 📦)")
         return updated
       })
@@ -185,7 +209,6 @@ export default function ChatPage() {
     abortRef.current = null
   }
 
-  const allChats = getAllChats()
   const nonSystemMsgs = messages.filter(m => m.role !== "system")
   const getModel = (id?: string) => MODELS.find(m => m.id === id)
 

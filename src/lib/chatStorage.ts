@@ -1,5 +1,5 @@
-// Chat persistence with compaction system
-// Stores conversations in localStorage with auto-compaction
+// Chat persistence — PostgreSQL via API routes
+// All operations are async and call /api/conversations
 
 export type StoredMessage = {
   id: number
@@ -31,89 +31,69 @@ export type CompactedMemory = {
   originalMessageCount: number
 }
 
-const STORAGE_KEY = "maestro_chats"
-const ACTIVE_CHAT_KEY = "maestro_active_chat"
-const MAX_MESSAGES_BEFORE_COMPACT = 30 // Compact after 30 messages
-const KEEP_RECENT_AFTER_COMPACT = 6 // Keep last 6 messages after compaction
+const MAX_MESSAGES_BEFORE_COMPACT = 30
+const KEEP_RECENT_AFTER_COMPACT = 6
 
-function getChats(): ChatSession[] {
-  if (typeof window === "undefined") return []
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
-
-function saveChats(chats: ChatSession[]) {
-  if (typeof window === "undefined") return
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(chats))
-}
-
+// Active chat ID — kept in localStorage (device-specific preference)
 export function getActiveChatId(): string | null {
   if (typeof window === "undefined") return null
-  return localStorage.getItem(ACTIVE_CHAT_KEY)
+  return localStorage.getItem("maestro_active_chat")
 }
 
 export function setActiveChatId(id: string) {
   if (typeof window === "undefined") return
-  localStorage.setItem(ACTIVE_CHAT_KEY, id)
+  localStorage.setItem("maestro_active_chat", id)
 }
 
-export function getAllChats(): ChatSession[] {
-  return getChats().sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+function clearActiveChatId() {
+  if (typeof window === "undefined") return
+  localStorage.removeItem("maestro_active_chat")
 }
 
-export function getChat(id: string): ChatSession | null {
-  return getChats().find(c => c.id === id) || null
+// API calls
+export async function getAllChats(): Promise<ChatSession[]> {
+  const res = await fetch("/api/conversations")
+  if (!res.ok) return []
+  return res.json()
 }
 
-export function createChat(): ChatSession {
-  const now = new Date().toISOString()
-  const chat: ChatSession = {
-    id: `chat_${Date.now()}`,
-    title: "Nouvelle conversation",
-    messages: [],
-    createdAt: now,
-    updatedAt: now,
-    messageCount: 0,
-  }
-  const chats = getChats()
-  chats.push(chat)
-  saveChats(chats)
+export async function getChat(id: string): Promise<ChatSession | null> {
+  const res = await fetch(`/api/conversations/${id}`)
+  if (!res.ok) return null
+  return res.json()
+}
+
+export async function createChat(): Promise<ChatSession> {
+  const id = `chat_${Date.now()}`
+  const res = await fetch("/api/conversations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  })
+  const chat = await res.json()
   setActiveChatId(chat.id)
   return chat
 }
 
-export function updateChat(id: string, messages: StoredMessage[], title?: string) {
-  const chats = getChats()
-  const idx = chats.findIndex(c => c.id === id)
-  if (idx === -1) return
-
-  chats[idx].messages = messages
-  chats[idx].messageCount = messages.length
-  chats[idx].updatedAt = new Date().toISOString()
-
+export async function updateChat(id: string, messages: StoredMessage[], title?: string) {
   // Auto-title from first user message
-  if (title) {
-    chats[idx].title = title
-  } else if (chats[idx].title === "Nouvelle conversation") {
+  let autoTitle = title
+  if (!autoTitle) {
     const firstUser = messages.find(m => m.role === "user")
     if (firstUser) {
-      chats[idx].title = firstUser.text.substring(0, 50) + (firstUser.text.length > 50 ? "..." : "")
+      autoTitle = firstUser.text.substring(0, 50) + (firstUser.text.length > 50 ? "..." : "")
     }
   }
-
-  saveChats(chats)
+  await fetch(`/api/conversations/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages, title: autoTitle }),
+  })
 }
 
-export function deleteChat(id: string) {
-  const chats = getChats().filter(c => c.id !== id)
-  saveChats(chats)
-  if (getActiveChatId() === id) {
-    localStorage.removeItem(ACTIVE_CHAT_KEY)
-  }
+export async function deleteChat(id: string) {
+  await fetch(`/api/conversations/${id}`, { method: "DELETE" })
+  if (getActiveChatId() === id) clearActiveChatId()
 }
 
 export function shouldCompact(messages: StoredMessage[]): boolean {
@@ -121,35 +101,26 @@ export function shouldCompact(messages: StoredMessage[]): boolean {
   return nonSystemMessages.length >= MAX_MESSAGES_BEFORE_COMPACT
 }
 
-export function applyCompaction(chatId: string, compacted: CompactedMemory, messages: StoredMessage[]) {
-  const chats = getChats()
-  const idx = chats.findIndex(c => c.id === chatId)
-  if (idx === -1) return
-
-  // Keep only the most recent messages
+export async function applyCompaction(chatId: string, compacted: CompactedMemory, messages: StoredMessage[]) {
   const recentMessages = messages.slice(-KEEP_RECENT_AFTER_COMPACT)
-
-  // Create a system message with the compacted memory
   const compactedSystemMsg: StoredMessage = {
     id: Date.now(),
     role: "system",
     text: `📦 Mémoire compactée (${compacted.originalMessageCount} messages → résumé)\n\n${compacted.summary}\n\nDécisions : ${compacted.decisions.join(", ") || "—"}\nEn cours : ${compacted.tasks.join(", ") || "—"}\nEn attente : ${compacted.pending.join(", ") || "—"}`,
     time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
   }
-
-  chats[idx].messages = [compactedSystemMsg, ...recentMessages]
-  chats[idx].compactedMemory = compacted
-  chats[idx].updatedAt = new Date().toISOString()
-  chats[idx].messageCount = chats[idx].messages.length
-
-  saveChats(chats)
-  return chats[idx].messages
+  const newMessages = [compactedSystemMsg, ...recentMessages]
+  await fetch(`/api/conversations/${chatId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages: newMessages, compactedMemory: compacted }),
+  })
+  return newMessages
 }
 
-export function getCompactionContext(chatId: string): string | null {
-  const chat = getChat(chatId)
+export async function getCompactionContext(chatId: string): Promise<string | null> {
+  const chat = await getChat(chatId)
   if (!chat?.compactedMemory) return null
-
   const mem = chat.compactedMemory
   return `MÉMOIRE COMPACTÉE DE CETTE CONVERSATION :
 Résumé : ${mem.summary}
