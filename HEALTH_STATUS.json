@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-03-09T22:00:00.597Z",
+  "timestamp": "2026-03-09T22:30:00.873Z",
   "alive": true,
   "checks": {
     "serverRunning": true,
@@ -7,14 +7,13 @@
     "missionsActive": 0,
     "lastActivity": "aucune",
     "goalsProgress": {
-      "total": 25,
-      "done": 11,
-      "percent": 44
+      "total": 43,
+      "done": 24,
+      "percent": 56
     },
-    "uptime": 412.509717948
+    "uptime": 10.957002506
   },
   "actions": [
-    "waiting_for_orders",
-    "goals_incomplete"
+    "waiting_for_orders"
   ]
 }
