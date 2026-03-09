@@ -1,4 +1,5 @@
 import TelegramBot from "node-telegram-bot-api"
+import { existsSync, readFileSync, writeFileSync } from "fs"
 import Anthropic from "@anthropic-ai/sdk"
 import https from "https"
 import type { Plugin } from "./types.js"
@@ -8,6 +9,10 @@ const MAX_HISTORY = 20
 
 // Conversation history per chat
 const conversationHistory = new Map<string, Array<{ role: "user" | "assistant"; content: unknown }>>()
+const HIST_FILE = "/root/maestro/telegram-history.json"
+function loadHist(){try{if(existsSync(HIST_FILE)){const d=JSON.parse(readFileSync(HIST_FILE,"utf-8"));for(const[k,v]of Object.entries(d))conversationHistory.set(k,v as any)}}catch{}}
+function saveHist(){const o:Record<string,any>={};conversationHistory.forEach((v,k)=>o[k]=v);writeFileSync(HIST_FILE,JSON.stringify(o),"utf-8")}
+loadHist()
 
 function getHistory(chatId: string) {
   if (!conversationHistory.has(chatId)) conversationHistory.set(chatId, [])
@@ -17,6 +22,7 @@ function getHistory(chatId: string) {
 function addToHistory(chatId: string, role: "user" | "assistant", content: unknown) {
   const history = getHistory(chatId)
   history.push({ role, content })
+  saveHist()
   // Keep last MAX_HISTORY entries (user+assistant pairs)
   while (history.length > MAX_HISTORY) history.shift()
 }
