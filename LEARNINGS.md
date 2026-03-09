@@ -12,3 +12,4 @@
 - Les emojis dans la navbar ne font pas pro → utiliser des icônes SVG
 - L'input du chat doit avoir mb-14 pour ne pas être caché par la navbar mobile
 - Toujours injecter la date/heure de Paris dans le system prompt
+
