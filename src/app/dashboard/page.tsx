@@ -339,7 +339,7 @@ export default function Dashboard() {
         {[
           { icon: "🎯", label: "Dashboard", active: true },
           { icon: "📋", label: "Missions", active: false },
-          { icon: "💬", label: "Chat", active: false },
+          { icon: "💬", label: "Chat", active: false, href: "/chat" },
           { icon: "🔐", label: "Coffre-fort", active: false },
         ].map((n, i) => (
           <div key={i} className={`text-center cursor-pointer ${n.active ? "opacity-100" : "opacity-40"}`}>
