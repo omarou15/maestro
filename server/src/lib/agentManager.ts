@@ -1,4 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk"
+import { existsSync, readFileSync, writeFileSync } from "fs"
+
+const MISSIONS_FILE = "/root/maestro/missions.json"
+const APPROVALS_FILE = "/root/maestro/approvals.json"
 
 export type AgentStatus = "idle" | "active" | "done" | "error"
 
@@ -26,8 +30,13 @@ export type Approval = {
 }
 
 const anthropic = new Anthropic()
-const missions: Map<string, Mission> = new Map()
-const approvals: Map<string, Approval> = new Map()
+
+function loadMissions(): Map<string, Mission> { try { if(existsSync(MISSIONS_FILE)) { const d=JSON.parse(readFileSync(MISSIONS_FILE,"utf-8")); const m=new Map<string,Mission>(); for(const[k,v] of Object.entries(d)) m.set(k,v as Mission); return m } } catch{} return new Map() }
+function saveMissions() { const o:Record<string,any>={}; missions.forEach((v,k)=>o[k]=v); writeFileSync(MISSIONS_FILE,JSON.stringify(o,null,2),"utf-8") }
+function loadApprovals(): Map<string, Approval> { try { if(existsSync(APPROVALS_FILE)) { const d=JSON.parse(readFileSync(APPROVALS_FILE,"utf-8")); const m=new Map<string,Approval>(); for(const[k,v] of Object.entries(d)) m.set(k,v as Approval); return m } } catch{} return new Map() }
+function saveApprovals() { const o:Record<string,any>={}; approvals.forEach((v,k)=>o[k]=v); writeFileSync(APPROVALS_FILE,JSON.stringify(o,null,2),"utf-8") }
+const missions = loadMissions()
+const approvals = loadApprovals()
 
 const now = () => new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" })
 const today = () => new Date().toLocaleDateString("fr-FR", { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" })
@@ -70,23 +79,26 @@ export function createMission(name: string, type: string, icon: string): Mission
     log: [{ time: now(), agentId: "maestro", agentIcon: "🎯", text: `Mission "${name}" créée — ${agents.length} agents mobilisés`, type: "info" }],
   }
   missions.set(id, mission)
+  saveMissions()
   return mission
 }
 
 export const getMissions = () => Array.from(missions.values())
 export const getMission = (id: string) => missions.get(id)
-export const deleteMission = (id: string) => missions.delete(id)
+export const deleteMission = (id: string) => { missions.delete(id); saveMissions() }
 export const getApprovals = () => Array.from(approvals.values())
 
 export function addApproval(missionId: string, agentId: string, action: string, reason: string): string {
   const id = `approval_${Date.now()}`
   approvals.set(id, { id, missionId, agentId, action, reason, time: now() })
+  saveApprovals()
   return id
 }
 
 export function resolveApproval(id: string) {
   const a = approvals.get(id)
   approvals.delete(id)
+  saveApprovals()
   return a
 }
 
