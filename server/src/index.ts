@@ -9,6 +9,7 @@ import { execSync } from "child_process"
 import { createMission, getMissions, getMission, deleteMission, getApprovals, addApproval, resolveApproval, orchestrate, runAgent, runMissionParallel, runAgentsParallel, getActivityLog } from "./lib/agentManager.js"
 import { runHeartbeat, getSelfAwareness } from "./crons/heartbeat.js"
 import { checkGitStatus } from "./crons/resilience.js"
+import { runUnifiedHeartbeat, formatHeartbeatReport } from "./unified-heartbeat.js"
 import { initGateway, getConnectedClients } from "./gateway.js"
 import { fire, EVENTS } from "./hooks.js"
 import { registerPlugin, getPlugins } from "./plugins/registry.js"
@@ -63,6 +64,16 @@ app.get("/api/self", (_, res) => {
     git: checkGitStatus(),
     plugins: getPlugins().map(p => ({ id: p.id, name: p.name, version: p.version })),
   })
+})
+
+// Unified heartbeat (Mind + Body)
+app.get("/api/unified-heartbeat", async (_, res) => {
+  try {
+    const status = await runUnifiedHeartbeat()
+    res.json(status)
+  } catch (e) {
+    res.status(500).json({ error: String(e) })
+  }
 })
 
 // Plugins list
