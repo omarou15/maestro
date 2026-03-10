@@ -1,4 +1,5 @@
 import express from "express"
+import { sendBriefing } from "./briefing.js"
 import cors from "cors"
 import dotenv from "dotenv"
 import { createServer } from "http"
@@ -40,6 +41,7 @@ app.use(activityMiddleware)
 
 // Health check
 app.get("/api/survival", (_, res) => res.json(getVitalSigns()))
+app.post("/api/briefing", async (_, res) => { const msg = await sendBriefing(); res.json({ ok: true, message: msg }) })
 app.get("/health", (_, res) => {
   res.json({
     status: "ok",
