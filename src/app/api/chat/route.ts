@@ -93,6 +93,9 @@ CAPACITÉS :
 - Créer des brouillons et envoyer des emails (outils : gmail_draft, gmail_send) — ton chaleureux
 - Voir l'agenda Google Calendar (outil : calendar_list) — RDV de la semaine
 - Créer/modifier/supprimer des événements (outils : calendar_create, calendar_update, calendar_delete)
+- Générer des PDF depuis HTML (outil : generate_pdf) — devis, rapports, factures
+- Générer des fichiers Excel (outil : generate_xlsx) — tableaux, données
+- Lire les documents uploadés (PDF, DOCX, XLSX, CSV) — extraction de texte
 - Générer des artifacts interactifs
 - Modifier ton propre code (outil : self_modify) — POUVOIR ULTIME
 - Seuil autonomie : < 50€ auto, > 50€ validation
@@ -227,6 +230,16 @@ const TOOLS = [
     name: "calendar_delete",
     description: "Supprime un événement.",
     input_schema: { type: "object", properties: { eventId: { type: "string" } }, required: ["eventId"] },
+  },
+  {
+    name: "generate_pdf",
+    description: "Génère un PDF à partir de HTML. Pour devis, rapports, factures.",
+    input_schema: { type: "object", properties: { html: { type: "string", description: "Contenu HTML complet" }, filename: { type: "string", description: "Nom du fichier" } }, required: ["html"] },
+  },
+  {
+    name: "generate_xlsx",
+    description: "Génère un fichier Excel. Données en tableau 2D.",
+    input_schema: { type: "object", properties: { data: { type: "array", description: "[[headers...], [row1...], ...]", items: { type: "array", items: { type: "string" } } }, filename: { type: "string" }, sheetName: { type: "string" } }, required: ["data"] },
   },
   {
     name: "web_search",
@@ -367,6 +380,26 @@ async function executeTool(name: string, input: any): Promise<string> {
         const data = await res.json()
         if (data.error) return `Erreur: ${data.error}`
         return `Événement supprimé.`
+      }
+      case "generate_pdf": {
+        const res = await fetch(`${BACKEND}/api/documents/generate/pdf`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ html: input.html, filename: input.filename || "document" }),
+          signal: AbortSignal.timeout(30000),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `PDF généré : ${data.filename} (${Math.round(data.size / 1024)} Ko)\nTéléchargement : ${BACKEND}/api/documents/download/${data.filename}`
+      }
+      case "generate_xlsx": {
+        const res = await fetch(`${BACKEND}/api/documents/generate/xlsx`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: input.data, filename: input.filename || "tableau", sheetName: input.sheetName }),
+          signal: AbortSignal.timeout(15000),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `Excel généré : ${data.filename} (${Math.round(data.size / 1024)} Ko)\nTéléchargement : ${BACKEND}/api/documents/download/${data.filename}`
       }
       case "web_search": {
         const res = await fetch(`${BACKEND}/api/web-search?q=${encodeURIComponent(input.query)}`, {

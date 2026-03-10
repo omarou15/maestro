@@ -20,6 +20,7 @@ import { configPlugin } from "./plugins/config.js"
 import { revenuePlugin } from "./plugins/revenue.js"
 import { gmailPlugin } from "./plugins/gmail.js"
 import { gcalendarPlugin } from "./plugins/gcalendar.js"
+import { documentsPlugin } from "./plugins/documents.js"
 
 dotenv.config()
 
@@ -366,6 +367,7 @@ async function boot() {
   await registerPlugin(revenuePlugin, app)
   await registerPlugin(gmailPlugin, app)
   await registerPlugin(gcalendarPlugin, app)
+  await registerPlugin(documentsPlugin, app)
 
   server.listen(PORT, () => {
     const heartbeat = runHeartbeat()

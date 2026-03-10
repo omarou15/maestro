@@ -78,6 +78,9 @@ CAPACITÉS :
 - Créer des brouillons et envoyer des emails (outils : gmail_draft, gmail_send) — ton chaleureux "Belle journée"
 - Voir l'agenda Google Calendar (outil : calendar_list) — RDV de la semaine
 - Créer/modifier/supprimer des événements (outils : calendar_create, calendar_update, calendar_delete)
+- Lire les documents uploadés (PDF, DOCX, XLSX, CSV) — extraction automatique du texte
+- Générer des PDF (devis, rapports) à partir de HTML (outil : generate_pdf)
+- Générer des fichiers Excel (outil : generate_xlsx)
 - Modifier ton propre code (outil : self_modify) — POUVOIR ULTIME
 - Seuil autonomie : < 50€ auto, > 50€ validation
 
@@ -137,6 +140,16 @@ const TOOLS: Anthropic.Tool[] = [
     input_schema: { type: "object" as const, properties: { eventId: { type: "string", description: "ID de l'événement à supprimer" } }, required: ["eventId"] },
   },
   {
+    name: "generate_pdf",
+    description: "Génère un PDF à partir de HTML. Idéal pour devis, rapports, factures. Retourne un lien de téléchargement.",
+    input_schema: { type: "object" as const, properties: { html: { type: "string", description: "Le contenu HTML complet du document" }, filename: { type: "string", description: "Nom du fichier (sans extension)" } }, required: ["html"] },
+  },
+  {
+    name: "generate_xlsx",
+    description: "Génère un fichier Excel (.xlsx). Passe les données comme tableau 2D (première ligne = en-têtes).",
+    input_schema: { type: "object" as const, properties: { data: { type: "array", description: "Tableau 2D : [[header1, header2], [val1, val2], ...]", items: { type: "array", items: { type: "string" } } }, filename: { type: "string", description: "Nom du fichier (sans extension)" }, sheetName: { type: "string", description: "Nom de la feuille (optionnel)" } }, required: ["data"] },
+  },
+  {
     name: "orchestrate",
     description: "Lance une nouvelle mission ou donne un ordre à Maestro.",
     input_schema: { type: "object" as const, properties: { message: { type: "string" } }, required: ["message"] },
@@ -184,6 +197,8 @@ const TOOL_LABELS: Record<string, string> = {
   calendar_create: "Création de l'événement...",
   calendar_update: "Modification de l'événement...",
   calendar_delete: "Suppression de l'événement...",
+  generate_pdf: "Génération du PDF...",
+  generate_xlsx: "Création du fichier Excel...",
   web_search: "Recherche web en cours...",
   web_fetch: "Lecture de la page...",
   orchestrate: "Lancement de mission...",
@@ -296,6 +311,28 @@ async function executeTool(name: string, input: any): Promise<string> {
         const data = await res.json()
         if (data.error) return `Erreur: ${data.error}`
         return `Événement supprimé.`
+      }
+      case "generate_pdf": {
+        const res = await fetch(`${BACKEND}/api/documents/generate/pdf`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ html: input.html, filename: input.filename || "document" }),
+          signal: AbortSignal.timeout(30000),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `PDF généré : ${data.filename} (${Math.round(data.size / 1024)} Ko)\nTéléchargement : ${BACKEND}/api/documents/download/${data.filename}`
+      }
+      case "generate_xlsx": {
+        const res = await fetch(`${BACKEND}/api/documents/generate/xlsx`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: input.data, filename: input.filename || "tableau", sheetName: input.sheetName }),
+          signal: AbortSignal.timeout(15000),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `Excel généré : ${data.filename} (${Math.round(data.size / 1024)} Ko)\nTéléchargement : ${BACKEND}/api/documents/download/${data.filename}`
       }
       case "web_search": {
         const res = await fetch(`${BACKEND}/api/web-search?q=${encodeURIComponent(input.query)}`)
@@ -502,11 +539,39 @@ export const telegramPlugin: Plugin = {
           imageFileId = msg.sticker.file_id
           imageMime = msg.sticker.is_animated ? "image/png" : "image/webp"
         } else if (msg.document) {
-          // Document — accept if it looks like an image or PDF
+          // Document — handle images as vision, parseable docs as text
           const mime = msg.document.mime_type || ""
-          if (mime.startsWith("image/") || mime === "application/pdf") {
+          const docName = msg.document.file_name || "document"
+          const parseable = ["application/pdf", "text/csv", "text/plain", "text/markdown",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/json", "text/html", "text/xml"]
+          if (parseable.includes(mime) || docName.match(/\.(pdf|csv|docx|xlsx|txt|md|html|json)$/i)) {
+            // Parse document via documents plugin
+            try {
+              const fileInfo = await bot.getFile(msg.document.file_id)
+              const fileUrl = `https://api.telegram.org/file/bot${token}/${fileInfo.file_path}`
+              const base64Doc = await downloadFileAsBase64(fileUrl)
+              const parseRes = await fetch(`${BACKEND}/api/documents/parse`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ base64: base64Doc, filename: docName, mimeType: mime }),
+                signal: AbortSignal.timeout(30000),
+              })
+              const parsed = await parseRes.json() as { text?: string; type?: string; error?: string }
+              if (parsed.text) {
+                const preview = parsed.text.slice(0, 8000)
+                contentBlocks.push({ type: "text", text: `[Document "${docName}" (${parsed.type})] :\n\n${preview}` })
+              } else {
+                contentBlocks.push({ type: "text", text: `[Document "${docName}" reçu mais parsing échoué : ${parsed.error || "inconnu"}]` })
+              }
+            } catch (parseErr) {
+              console.error("[TELEGRAM] Document parse error:", parseErr)
+              contentBlocks.push({ type: "text", text: `[Document "${docName}" reçu mais impossible à lire]` })
+            }
+          } else if (mime.startsWith("image/")) {
             imageFileId = msg.document.file_id
-            if (mime.startsWith("image/")) imageMime = mime
+            imageMime = mime
           }
         } else if (msg.video || msg.video_note || msg.animation) {
           // Video/GIF — grab the thumbnail as an image
