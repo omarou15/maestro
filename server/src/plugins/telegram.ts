@@ -72,6 +72,15 @@ CAPACITÉS :
 - Voir les validations en attente (outil : list_approvals)
 - Approuver ou refuser une validation (outil : resolve_approval)
 - Consulter l'activité récente (outil : get_activity)
+- Rechercher sur le web en temps réel (outil : web_search) — prix, actus, horaires, infos
+- Lire le contenu complet d'une page web (outil : web_fetch) — articles, pages produit, docs
+- Lire et chercher dans Gmail (outils : gmail_search, gmail_read) — emails clients, factures
+- Créer des brouillons et envoyer des emails (outils : gmail_draft, gmail_send) — ton chaleureux "Belle journée"
+- Voir l'agenda Google Calendar (outil : calendar_list) — RDV de la semaine
+- Créer/modifier/supprimer des événements (outils : calendar_create, calendar_update, calendar_delete)
+- Lire les documents uploadés (PDF, DOCX, XLSX, CSV) — extraction automatique du texte
+- Générer des PDF (devis, rapports) à partir de HTML (outil : generate_pdf)
+- Générer des fichiers Excel (outil : generate_xlsx)
 - Modifier ton propre code (outil : self_modify) — POUVOIR ULTIME
 - Seuil autonomie : < 50€ auto, > 50€ validation
 
@@ -82,8 +91,63 @@ Quand Omar donne un ordre d'action, UTILISE TOUJOURS l'outil correspondant. Ne s
 const TOOLS: Anthropic.Tool[] = [
   {
     name: "web_search",
-    description: "Recherche sur le web via DuckDuckGo. Retourne les titres, URLs et extraits des résultats.",
+    description: "Recherche sur le web. Retourne les titres, URLs et extraits des résultats. Utilise cet outil pour toute question nécessitant des infos récentes, des prix, des horaires, etc.",
     input_schema: { type: "object" as const, properties: { query: { type: "string", description: "La requête de recherche" } }, required: ["query"] },
+  },
+  {
+    name: "web_fetch",
+    description: "Lit le contenu complet d'une page web à partir de son URL. Utilise cet outil pour lire un article, une page produit, un document en ligne, etc.",
+    input_schema: { type: "object" as const, properties: { url: { type: "string", description: "L'URL complète de la page à lire" } }, required: ["url"] },
+  },
+  {
+    name: "gmail_search",
+    description: "Cherche dans les emails Gmail. Exemples de query : 'is:unread', 'from:nexity', 'subject:devis', 'newer_than:3d'. Retourne les sujets, expéditeurs et extraits.",
+    input_schema: { type: "object" as const, properties: { query: { type: "string", description: "Requête Gmail (ex: is:unread, from:client@email.com, subject:facture)" }, max: { type: "number", description: "Nombre max de résultats (défaut: 5)" } }, required: ["query"] },
+  },
+  {
+    name: "gmail_read",
+    description: "Lit le contenu complet d'un email par son ID.",
+    input_schema: { type: "object" as const, properties: { messageId: { type: "string", description: "L'ID du message Gmail" } }, required: ["messageId"] },
+  },
+  {
+    name: "gmail_draft",
+    description: "Crée un brouillon d'email. Utilise le ton chaleureux d'Omar (Belle journée, pas Cordialement).",
+    input_schema: { type: "object" as const, properties: { to: { type: "string", description: "Adresse email du destinataire" }, subject: { type: "string", description: "Sujet de l'email" }, body: { type: "string", description: "Corps de l'email" }, threadId: { type: "string", description: "ID du thread pour répondre à un fil existant (optionnel)" } }, required: ["to", "subject", "body"] },
+  },
+  {
+    name: "gmail_send",
+    description: "Envoie un email directement. Pour les envois > 50€ d'impact, préfère gmail_draft et demande validation.",
+    input_schema: { type: "object" as const, properties: { to: { type: "string", description: "Adresse email du destinataire" }, subject: { type: "string", description: "Sujet de l'email" }, body: { type: "string", description: "Corps de l'email" }, threadId: { type: "string", description: "ID du thread pour répondre (optionnel)" } }, required: ["to", "subject", "body"] },
+  },
+  {
+    name: "calendar_list",
+    description: "Liste les événements à venir du calendrier Google. Peut filtrer par nombre de jours.",
+    input_schema: { type: "object" as const, properties: { days: { type: "number", description: "Nombre de jours à afficher (défaut: 7)" } }, required: [] },
+  },
+  {
+    name: "calendar_create",
+    description: "Crée un événement dans Google Calendar. Respecte les préférences : clients le matin, pas le vendredi PM.",
+    input_schema: { type: "object" as const, properties: { summary: { type: "string", description: "Titre de l'événement" }, start: { type: "string", description: "Date/heure de début (ISO ou 'demain 10h', '2026-03-12T14:00')" }, end: { type: "string", description: "Date/heure de fin" }, description: { type: "string", description: "Description (optionnel)" }, location: { type: "string", description: "Lieu (optionnel)" } }, required: ["summary", "start", "end"] },
+  },
+  {
+    name: "calendar_update",
+    description: "Modifie un événement existant par son ID.",
+    input_schema: { type: "object" as const, properties: { eventId: { type: "string", description: "ID de l'événement" }, summary: { type: "string" }, start: { type: "string" }, end: { type: "string" }, description: { type: "string" }, location: { type: "string" } }, required: ["eventId"] },
+  },
+  {
+    name: "calendar_delete",
+    description: "Supprime un événement du calendrier.",
+    input_schema: { type: "object" as const, properties: { eventId: { type: "string", description: "ID de l'événement à supprimer" } }, required: ["eventId"] },
+  },
+  {
+    name: "generate_pdf",
+    description: "Génère un PDF à partir de HTML. Idéal pour devis, rapports, factures. Retourne un lien de téléchargement.",
+    input_schema: { type: "object" as const, properties: { html: { type: "string", description: "Le contenu HTML complet du document" }, filename: { type: "string", description: "Nom du fichier (sans extension)" } }, required: ["html"] },
+  },
+  {
+    name: "generate_xlsx",
+    description: "Génère un fichier Excel (.xlsx). Passe les données comme tableau 2D (première ligne = en-têtes).",
+    input_schema: { type: "object" as const, properties: { data: { type: "array", description: "Tableau 2D : [[header1, header2], [val1, val2], ...]", items: { type: "array", items: { type: "string" } } }, filename: { type: "string", description: "Nom du fichier (sans extension)" }, sheetName: { type: "string", description: "Nom de la feuille (optionnel)" } }, required: ["data"] },
   },
   {
     name: "orchestrate",
@@ -125,7 +189,18 @@ const TOOLS: Anthropic.Tool[] = [
 ]
 
 const TOOL_LABELS: Record<string, string> = {
+  gmail_search: "Recherche dans les emails...",
+  gmail_read: "Lecture de l'email...",
+  gmail_draft: "Création du brouillon...",
+  gmail_send: "Envoi de l'email...",
+  calendar_list: "Consultation de l'agenda...",
+  calendar_create: "Création de l'événement...",
+  calendar_update: "Modification de l'événement...",
+  calendar_delete: "Suppression de l'événement...",
+  generate_pdf: "Génération du PDF...",
+  generate_xlsx: "Création du fichier Excel...",
   web_search: "Recherche web en cours...",
+  web_fetch: "Lecture de la page...",
   orchestrate: "Lancement de mission...",
   list_missions: "Consultation des missions...",
   list_approvals: "Vérification des validations...",
@@ -162,6 +237,103 @@ async function executeTool(name: string, input: any): Promise<string> {
         const res = await fetch(`${BACKEND}/api/self-modify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: input.prompt }), signal: AbortSignal.timeout(300000) })
         return JSON.stringify(await res.json())
       }
+      case "gmail_search": {
+        const q = input.query || "is:unread"
+        const max = input.max || 5
+        const res = await fetch(`${BACKEND}/api/gmail/messages?q=${encodeURIComponent(q)}&max=${max}`)
+        const data = await res.json()
+        if (data.error) return `Erreur Gmail: ${data.error}`
+        if (!data.messages?.length) return "Aucun email trouvé."
+        return data.messages.map((m: { from: string; subject: string; snippet: string; date: string; id: string; unread: boolean }, i: number) =>
+          `${i+1}. ${m.unread ? "🔵 " : ""}${m.subject}\n   De: ${m.from}\n   ${m.date}\n   ${m.snippet.slice(0, 100)}\n   [ID: ${m.id}]`
+        ).join("\n\n")
+      }
+      case "gmail_read": {
+        const res = await fetch(`${BACKEND}/api/gmail/messages/${input.messageId}`)
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `De: ${data.from}\nÀ: ${data.to}\nSujet: ${data.subject}\nDate: ${data.date}\n\n${data.body?.slice(0, 5000) || "[Vide]"}`
+      }
+      case "gmail_draft": {
+        const res = await fetch(`${BACKEND}/api/gmail/drafts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: input.to, subject: input.subject, body: input.body, threadId: input.threadId }),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `Brouillon créé (ID: ${data.id}). Tu peux le retrouver dans Gmail > Brouillons.`
+      }
+      case "gmail_send": {
+        const res = await fetch(`${BACKEND}/api/gmail/send`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: input.to, subject: input.subject, body: input.body, threadId: input.threadId }),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `Email envoyé à ${input.to} (ID: ${data.id}).`
+      }
+      case "calendar_list": {
+        const days = input.days || 7
+        const res = await fetch(`${BACKEND}/api/calendar/events?days=${days}`)
+        const data = await res.json()
+        if (data.error) return `Erreur Calendar: ${data.error}`
+        if (!data.events?.length) return `Aucun événement dans les ${days} prochains jours.`
+        return data.events.map((e: { summary: string; start: string; end: string; location: string; id: string }, i: number) => {
+          const start = new Date(e.start).toLocaleString("fr-FR", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" })
+          const end = new Date(e.end).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" })
+          return `${i+1}. ${e.summary}\n   ${start} → ${end}${e.location ? `\n   📍 ${e.location}` : ""}\n   [ID: ${e.id}]`
+        }).join("\n\n")
+      }
+      case "calendar_create": {
+        const res = await fetch(`${BACKEND}/api/calendar/events`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ summary: input.summary, start: input.start, end: input.end, description: input.description, location: input.location }),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `Événement "${input.summary}" créé. ${data.htmlLink ? `Lien: ${data.htmlLink}` : ""}`
+      }
+      case "calendar_update": {
+        const res = await fetch(`${BACKEND}/api/calendar/events/${input.eventId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ summary: input.summary, start: input.start, end: input.end, description: input.description, location: input.location }),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `Événement mis à jour.`
+      }
+      case "calendar_delete": {
+        const res = await fetch(`${BACKEND}/api/calendar/events/${input.eventId}`, { method: "DELETE" })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `Événement supprimé.`
+      }
+      case "generate_pdf": {
+        const res = await fetch(`${BACKEND}/api/documents/generate/pdf`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ html: input.html, filename: input.filename || "document" }),
+          signal: AbortSignal.timeout(30000),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `PDF généré : ${data.filename} (${Math.round(data.size / 1024)} Ko)\nTéléchargement : ${BACKEND}/api/documents/download/${data.filename}`
+      }
+      case "generate_xlsx": {
+        const res = await fetch(`${BACKEND}/api/documents/generate/xlsx`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: input.data, filename: input.filename || "tableau", sheetName: input.sheetName }),
+          signal: AbortSignal.timeout(15000),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `Excel généré : ${data.filename} (${Math.round(data.size / 1024)} Ko)\nTéléchargement : ${BACKEND}/api/documents/download/${data.filename}`
+      }
       case "web_search": {
         const res = await fetch(`${BACKEND}/api/web-search?q=${encodeURIComponent(input.query)}`)
         const data = await res.json()
@@ -169,6 +341,19 @@ async function executeTool(name: string, input: any): Promise<string> {
         return data.results.map((r: {title: string; url: string; snippet: string}, i: number) =>
           `${i+1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`
         ).join("\n\n")
+      }
+      case "web_fetch": {
+        const res = await fetch(`${BACKEND}/api/web-fetch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: input.url }),
+          signal: AbortSignal.timeout(20000),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        // Truncate for Claude context
+        const content = data.content?.slice(0, 15000) || "Page vide"
+        return `Contenu de ${data.url} (${data.contentType}):\n\n${content}`
       }
       default:
         return JSON.stringify({ error: `Outil inconnu : ${name}` })
@@ -342,23 +527,86 @@ export const telegramPlugin: Plugin = {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const contentBlocks: any[] = []
 
-        if (msg.photo) {
-          const photo = msg.photo[msg.photo.length - 1]
-          const fileInfo = await bot.getFile(photo.file_id)
-          const fileUrl = `https://api.telegram.org/file/bot${token}/${fileInfo.file_path}`
-          const base64 = await downloadFileAsBase64(fileUrl)
-          contentBlocks.push({
-            type: "image",
-            source: { type: "base64", media_type: "image/jpeg", data: base64 },
-          })
+        // Resolve image file_id from any message type — never refuse an image
+        let imageFileId: string | undefined
+        let imageMime = "image/jpeg"
+
+        if (msg.photo && msg.photo.length > 0) {
+          // Photo message — take highest resolution
+          imageFileId = msg.photo[msg.photo.length - 1].file_id
+        } else if (msg.sticker) {
+          // Sticker — treat as image (webp/png)
+          imageFileId = msg.sticker.file_id
+          imageMime = msg.sticker.is_animated ? "image/png" : "image/webp"
+        } else if (msg.document) {
+          // Document — handle images as vision, parseable docs as text
+          const mime = msg.document.mime_type || ""
+          const docName = msg.document.file_name || "document"
+          const parseable = ["application/pdf", "text/csv", "text/plain", "text/markdown",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/json", "text/html", "text/xml"]
+          if (parseable.includes(mime) || docName.match(/\.(pdf|csv|docx|xlsx|txt|md|html|json)$/i)) {
+            // Parse document via documents plugin
+            try {
+              const fileInfo = await bot.getFile(msg.document.file_id)
+              const fileUrl = `https://api.telegram.org/file/bot${token}/${fileInfo.file_path}`
+              const base64Doc = await downloadFileAsBase64(fileUrl)
+              const parseRes = await fetch(`${BACKEND}/api/documents/parse`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ base64: base64Doc, filename: docName, mimeType: mime }),
+                signal: AbortSignal.timeout(30000),
+              })
+              const parsed = await parseRes.json() as { text?: string; type?: string; error?: string }
+              if (parsed.text) {
+                const preview = parsed.text.slice(0, 8000)
+                contentBlocks.push({ type: "text", text: `[Document "${docName}" (${parsed.type})] :\n\n${preview}` })
+              } else {
+                contentBlocks.push({ type: "text", text: `[Document "${docName}" reçu mais parsing échoué : ${parsed.error || "inconnu"}]` })
+              }
+            } catch (parseErr) {
+              console.error("[TELEGRAM] Document parse error:", parseErr)
+              contentBlocks.push({ type: "text", text: `[Document "${docName}" reçu mais impossible à lire]` })
+            }
+          } else if (mime.startsWith("image/")) {
+            imageFileId = msg.document.file_id
+            imageMime = mime
+          }
+        } else if (msg.video || msg.video_note || msg.animation) {
+          // Video/GIF — grab the thumbnail as an image
+          const media = msg.video || msg.video_note || msg.animation
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const thumb = (media as any)?.thumb ?? (media as any)?.thumbnail
+          if (thumb?.file_id) {
+            imageFileId = thumb.file_id
+            imageMime = "image/jpeg"
+          }
+        }
+
+        if (imageFileId) {
+          try {
+            const fileInfo = await bot.getFile(imageFileId)
+            const fileUrl = `https://api.telegram.org/file/bot${token}/${fileInfo.file_path}`
+            const base64 = await downloadFileAsBase64(fileUrl)
+            // For PDFs sent as documents, use document mime
+            const finalMime = msg.document?.mime_type === "application/pdf" ? "application/pdf" : imageMime
+            contentBlocks.push({
+              type: "image",
+              source: { type: "base64", media_type: finalMime, data: base64 },
+            })
+          } catch (dlErr) {
+            console.error("[TELEGRAM] Erreur download media:", dlErr)
+            contentBlocks.push({ type: "text", text: "[Image reçue mais impossible à télécharger — je fais de mon mieux avec le contexte]" })
+          }
         }
 
         const text = msg.text || msg.caption || ""
         if (text) contentBlocks.push({ type: "text", text })
 
+        // Never say no — if nothing parseable, still acknowledge
         if (contentBlocks.length === 0) {
-          await bot.sendMessage(chatId, "Je ne sais pas traiter ce type de message.")
-          return
+          contentBlocks.push({ type: "text", text: "[Message multimédia reçu — format non reconnu, mais je reste à l'écoute]" })
         }
 
         await bot.sendChatAction(chatId, "typing")
