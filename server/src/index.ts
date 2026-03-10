@@ -16,6 +16,7 @@ import { registerPlugin, getPlugins } from "./plugins/registry.js"
 import { telegramPlugin } from "./plugins/telegram.js"
 import { activityMiddleware, runSurvivalLoop, getVitalSigns } from "./survival.js"
 import { skillsPlugin } from "./plugins/skills.js"
+import { modelRouterPlugin } from "./plugins/modelRouter.js"
 import { cronsPlugin } from "./plugins/crons.js"
 import { sandboxPlugin } from "./plugins/sandbox.js"
 import { configPlugin } from "./plugins/config.js"
@@ -381,6 +382,7 @@ async function boot() {
   await registerPlugin(gmailPlugin, app)
   await registerPlugin(gcalendarPlugin, app)
   await registerPlugin(documentsPlugin, app)
+  await registerPlugin(modelRouterPlugin, app)
 
   server.listen(PORT, () => {
     const heartbeat = runHeartbeat()

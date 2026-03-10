@@ -11,6 +11,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@types/node-telegram-bot-api": "^0.64.14",
+    "@types/pg": "^8.18.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
     "exceljs": "^4.4.0",
@@ -19,6 +20,7 @@
     "node-cron": "^3.0.3",
     "node-telegram-bot-api": "^0.67.0",
     "pdf-parse": "^2.4.5",
+    "pg": "^8.20.0",
     "puppeteer-core": "^24.38.0",
     "ws": "^8.19.0"
   },
