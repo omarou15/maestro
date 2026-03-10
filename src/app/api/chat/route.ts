@@ -182,6 +182,17 @@ const TOOLS = [
       required: ["skillId"],
     },
   },
+  {
+    name: "web_search",
+    description: "Recherche sur le web. Utilise cet outil quand tu as besoin d'informations actuelles, de prix, de news, ou quand tu ne connais pas la réponse. Aussi utile pour vérifier des faits récents.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "La requête de recherche" },
+      },
+      required: ["query"],
+    },
+  },
 ]
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -228,6 +239,41 @@ async function executeTool(name: string, input: any): Promise<string> {
       case "get_skill": {
         const res = await fetch(`${BACKEND}/api/skills/${input.skillId}`)
         return JSON.stringify(await res.json())
+      }
+      case "web_search": {
+        // Use DuckDuckGo lite + Google fallback
+        const q = encodeURIComponent(input.query)
+        try {
+          // Try Google first (more reliable)
+          const res = await fetch(`https://www.google.com/search?q=${q}&num=5&hl=fr`, {
+            headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
+            signal: AbortSignal.timeout(10000),
+          })
+          const html = await res.text()
+          // Extract results from Google HTML
+          const results: string[] = []
+          const regex = /<a href="\/url\?q=([^&"]+)[^"]*"[^>]*>([\s\S]*?)<\/a>/g
+          let match
+          while ((match = regex.exec(html)) !== null && results.length < 5) {
+            const url = decodeURIComponent(match[1])
+            if (url.startsWith("http") && !url.includes("google.com") && !url.includes("youtube.com/results")) {
+              const title = match[2].replace(/<[^>]+>/g, "").trim()
+              if (title) results.push(`${title}\n${url}`)
+            }
+          }
+          // Also try to extract snippets
+          const snippets: string[] = []
+          const snipRegex = /<span class="st">([\s\S]*?)<\/span>/g
+          while ((match = snipRegex.exec(html)) !== null && snippets.length < 5) {
+            snippets.push(match[1].replace(/<[^>]+>/g, "").trim())
+          }
+          if (results.length > 0) {
+            return `Résultats pour "${input.query}":\n\n${results.map((r, i) => `${i + 1}. ${r}${snippets[i] ? "\n   " + snippets[i] : ""}`).join("\n\n")}`
+          }
+          return `Recherche "${input.query}" — pas de résultats exploitables. Essaie de reformuler.`
+        } catch {
+          return `Erreur de recherche pour "${input.query}". Le service est temporairement indisponible.`
+        }
       }
       default:
         return JSON.stringify({ error: `Outil inconnu : ${name}` })
