@@ -5,9 +5,9 @@
     "schedule": "*/5 * * * *",
     "description": "Vérifie que Maestro est en vie, log l'état",
     "active": true,
-    "lastRun": "2026-03-10T10:20:00.330Z",
+    "lastRun": "2026-03-10T10:30:00.791Z",
     "lastStatus": "ok",
-    "lastOutput": "{\"timestamp\":\"2026-03-10T10:20:00.328Z\",\"alive\":true,\"checks\":{\"serverRunning\":true,\"apiResponding\":true,\"missionsActive\":0,\"lastActivity\":\"aucune\",\"goalsProgress\":{\"total\":43,\"done\":24,\"percent\":56},"
+    "lastOutput": "{\"timestamp\":\"2026-03-10T10:30:00.790Z\",\"alive\":true,\"checks\":{\"serverRunning\":true,\"apiResponding\":true,\"missionsActive\":0,\"lastActivity\":\"aucune\",\"goalsProgress\":{\"total\":43,\"done\":24,\"percent\":56},"
   },
   {
     "id": "selfheal",
