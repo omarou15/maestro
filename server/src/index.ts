@@ -18,6 +18,8 @@ import { cronsPlugin } from "./plugins/crons.js"
 import { sandboxPlugin } from "./plugins/sandbox.js"
 import { configPlugin } from "./plugins/config.js"
 import { revenuePlugin } from "./plugins/revenue.js"
+import { gmailPlugin } from "./plugins/gmail.js"
+import { gcalendarPlugin } from "./plugins/gcalendar.js"
 
 dotenv.config()
 
@@ -362,6 +364,8 @@ async function boot() {
   await registerPlugin(sandboxPlugin, app)
   await registerPlugin(telegramPlugin, app)
   await registerPlugin(revenuePlugin, app)
+  await registerPlugin(gmailPlugin, app)
+  await registerPlugin(gcalendarPlugin, app)
 
   server.listen(PORT, () => {
     const heartbeat = runHeartbeat()

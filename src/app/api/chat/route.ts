@@ -89,6 +89,10 @@ CAPACITÉS :
 - Consulter l'activité récente (outil : get_activity)
 - Rechercher sur le web en temps réel (outil : web_search) — prix, actus, horaires, infos
 - Lire le contenu complet d'une page web (outil : web_fetch) — articles, pages produit, docs
+- Lire et chercher dans Gmail (outils : gmail_search, gmail_read) — emails clients, factures
+- Créer des brouillons et envoyer des emails (outils : gmail_draft, gmail_send) — ton chaleureux
+- Voir l'agenda Google Calendar (outil : calendar_list) — RDV de la semaine
+- Créer/modifier/supprimer des événements (outils : calendar_create, calendar_update, calendar_delete)
 - Générer des artifacts interactifs
 - Modifier ton propre code (outil : self_modify) — POUVOIR ULTIME
 - Seuil autonomie : < 50€ auto, > 50€ validation
@@ -185,6 +189,46 @@ const TOOLS = [
     },
   },
   {
+    name: "gmail_search",
+    description: "Cherche dans les emails Gmail. Query: 'is:unread', 'from:nexity', 'subject:devis', 'newer_than:3d'.",
+    input_schema: { type: "object", properties: { query: { type: "string", description: "Requête Gmail" }, max: { type: "number", description: "Nombre max (défaut: 5)" } }, required: ["query"] },
+  },
+  {
+    name: "gmail_read",
+    description: "Lit le contenu complet d'un email par son ID.",
+    input_schema: { type: "object", properties: { messageId: { type: "string" } }, required: ["messageId"] },
+  },
+  {
+    name: "gmail_draft",
+    description: "Crée un brouillon d'email. Ton chaleureux d'Omar.",
+    input_schema: { type: "object", properties: { to: { type: "string" }, subject: { type: "string" }, body: { type: "string" }, threadId: { type: "string" } }, required: ["to", "subject", "body"] },
+  },
+  {
+    name: "gmail_send",
+    description: "Envoie un email. Pour > 50€ d'impact, préfère gmail_draft.",
+    input_schema: { type: "object", properties: { to: { type: "string" }, subject: { type: "string" }, body: { type: "string" }, threadId: { type: "string" } }, required: ["to", "subject", "body"] },
+  },
+  {
+    name: "calendar_list",
+    description: "Liste les événements à venir du calendrier.",
+    input_schema: { type: "object", properties: { days: { type: "number", description: "Nombre de jours (défaut: 7)" } }, required: [] },
+  },
+  {
+    name: "calendar_create",
+    description: "Crée un événement dans Google Calendar.",
+    input_schema: { type: "object", properties: { summary: { type: "string" }, start: { type: "string" }, end: { type: "string" }, description: { type: "string" }, location: { type: "string" } }, required: ["summary", "start", "end"] },
+  },
+  {
+    name: "calendar_update",
+    description: "Modifie un événement existant.",
+    input_schema: { type: "object", properties: { eventId: { type: "string" }, summary: { type: "string" }, start: { type: "string" }, end: { type: "string" }, description: { type: "string" }, location: { type: "string" } }, required: ["eventId"] },
+  },
+  {
+    name: "calendar_delete",
+    description: "Supprime un événement.",
+    input_schema: { type: "object", properties: { eventId: { type: "string" } }, required: ["eventId"] },
+  },
+  {
     name: "web_search",
     description: "Recherche sur le web en temps réel. Utilise cet outil pour toute question nécessitant des informations récentes, des prix, des horaires, de l'actualité, etc.",
     input_schema: {
@@ -252,6 +296,77 @@ async function executeTool(name: string, input: any): Promise<string> {
       case "get_skill": {
         const res = await fetch(`${BACKEND}/api/skills/${input.skillId}`)
         return JSON.stringify(await res.json())
+      }
+      case "gmail_search": {
+        const q = input.query || "is:unread"
+        const max = input.max || 5
+        const res = await fetch(`${BACKEND}/api/gmail/messages?q=${encodeURIComponent(q)}&max=${max}`)
+        const data = await res.json()
+        if (data.error) return `Erreur Gmail: ${data.error}`
+        if (!data.messages?.length) return "Aucun email trouvé."
+        return data.messages.map((m: { from: string; subject: string; snippet: string; date: string; id: string; unread: boolean }, i: number) =>
+          `${i+1}. ${m.unread ? "[NON LU] " : ""}${m.subject}\n   De: ${m.from}\n   ${m.date}\n   ${m.snippet.slice(0, 100)}\n   [ID: ${m.id}]`
+        ).join("\n\n")
+      }
+      case "gmail_read": {
+        const res = await fetch(`${BACKEND}/api/gmail/messages/${input.messageId}`)
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `De: ${data.from}\nÀ: ${data.to}\nSujet: ${data.subject}\nDate: ${data.date}\n\n${data.body?.slice(0, 8000) || "[Vide]"}`
+      }
+      case "gmail_draft": {
+        const res = await fetch(`${BACKEND}/api/gmail/drafts`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: input.to, subject: input.subject, body: input.body, threadId: input.threadId }),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `Brouillon créé (ID: ${data.id}). Disponible dans Gmail > Brouillons.`
+      }
+      case "gmail_send": {
+        const res = await fetch(`${BACKEND}/api/gmail/send`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: input.to, subject: input.subject, body: input.body, threadId: input.threadId }),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `Email envoyé à ${input.to}.`
+      }
+      case "calendar_list": {
+        const days = input.days || 7
+        const res = await fetch(`${BACKEND}/api/calendar/events?days=${days}`)
+        const data = await res.json()
+        if (data.error) return `Erreur Calendar: ${data.error}`
+        if (!data.events?.length) return `Aucun événement dans les ${days} prochains jours.`
+        return data.events.map((e: { summary: string; start: string; end: string; location: string; id: string }, i: number) => {
+          const start = new Date(e.start).toLocaleString("fr-FR", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" })
+          const end = new Date(e.end).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" })
+          return `${i+1}. ${e.summary}\n   ${start} → ${end}${e.location ? `\n   Lieu: ${e.location}` : ""}\n   [ID: ${e.id}]`
+        }).join("\n\n")
+      }
+      case "calendar_create": {
+        const res = await fetch(`${BACKEND}/api/calendar/events`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ summary: input.summary, start: input.start, end: input.end, description: input.description, location: input.location }),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `Événement "${input.summary}" créé.${data.htmlLink ? ` Lien: ${data.htmlLink}` : ""}`
+      }
+      case "calendar_update": {
+        const res = await fetch(`${BACKEND}/api/calendar/events/${input.eventId}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ summary: input.summary, start: input.start, end: input.end, description: input.description, location: input.location }),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `Événement mis à jour.`
+      }
+      case "calendar_delete": {
+        const res = await fetch(`${BACKEND}/api/calendar/events/${input.eventId}`, { method: "DELETE" })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        return `Événement supprimé.`
       }
       case "web_search": {
         const res = await fetch(`${BACKEND}/api/web-search?q=${encodeURIComponent(input.query)}`, {
