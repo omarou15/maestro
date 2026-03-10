@@ -22,7 +22,7 @@ export default async function Home() {
             <circle cx="35.5" cy="14.5" r="2" fill="#D4940A" opacity="0.7" />
             <circle cx="12.5" cy="14.5" r="2" fill="#D4940A" opacity="0.7" />
           </svg>
-          <span className="text-lg font-bold text-[var(--maestro-primary)] tracking-tight">MAESTRO</span>
+          <span className="text-lg font-bold text-[var(--maestro-primary)] tracking-tight">REDEXES</span>
         </div>
         <Link href="/sign-in" className="bg-[var(--maestro-primary)] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[var(--maestro-primary-light)] transition-colors">
           Se connecter
@@ -51,10 +51,10 @@ export default async function Home() {
           </svg>
         </div>
         <h1 className="text-4xl md:text-5xl font-bold text-[var(--maestro-primary)] tracking-tight max-w-xl leading-tight mb-4">
-          Ton orchestrateur IA<span className="text-[var(--maestro-accent)]"> personnel</span>
+          Mind + Body = <span className="text-[var(--maestro-accent)]">Unified AI</span>
         </h1>
         <p className="text-lg text-[var(--maestro-muted)] max-w-md mb-8 leading-relaxed">
-          Donne des missions en langage naturel. Maestro crée les agents, choisit le meilleur modèle IA, et exécute — 24h/24, 7j/7.
+          Redexes 🔷 — OpenClaw intelligence + Maestro interface. Conversation, memory, tools, self-modification. Always on, always learning.
         </p>
         <Link href="/sign-up" className="bg-[var(--maestro-accent)] text-white px-7 py-3 rounded-xl text-sm font-bold hover:bg-[var(--maestro-accent-light)] transition-colors shadow-lg shadow-amber-500/20">
           Commencer →
@@ -62,9 +62,9 @@ export default async function Home() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-16 max-w-3xl w-full">
           {[
-            { icon: '🤖', title: 'Multi-IA', desc: 'Claude, GPT, Gemini, DALL-E — le meilleur modèle pour chaque tâche' },
-            { icon: '⚡', title: '24/7 Autonome', desc: 'Tes agents travaillent pendant que tu dors' },
-            { icon: '🔐', title: 'Ton serveur', desc: 'Hébergé chez toi, données chiffrées, contrôle total' },
+            { icon: '🧠', title: 'OpenClaw Mind', desc: 'Conversation, memory search, browser control, file ops, skills' },
+            { icon: '💪', title: 'Maestro Body', desc: 'Web dashboard, GitHub self-modification, survival engine' },
+            { icon: '🔷', title: 'Unified Entity', desc: 'File-based memory + PostgreSQL structure. Always learning.' },
           ].map((f, i) => (
             <div key={i} className="bg-white rounded-2xl p-5 border border-[var(--maestro-border)] text-left">
               <div className="text-2xl mb-3">{f.icon}</div>
@@ -76,7 +76,7 @@ export default async function Home() {
       </main>
 
       <footer className="text-center py-6 text-xs text-[var(--maestro-muted)]">
-        Maestro · Orchestrateur IA Personnel · 2026
+        Redexes 🔷 · Unified AI Entity · 2026
       </footer>
     </div>
   )
