@@ -72,6 +72,8 @@ CAPACITÉS :
 - Voir les validations en attente (outil : list_approvals)
 - Approuver ou refuser une validation (outil : resolve_approval)
 - Consulter l'activité récente (outil : get_activity)
+- Rechercher sur le web en temps réel (outil : web_search) — prix, actus, horaires, infos
+- Lire le contenu complet d'une page web (outil : web_fetch) — articles, pages produit, docs
 - Modifier ton propre code (outil : self_modify) — POUVOIR ULTIME
 - Seuil autonomie : < 50€ auto, > 50€ validation
 
@@ -131,6 +133,7 @@ const TOOLS: Anthropic.Tool[] = [
 
 const TOOL_LABELS: Record<string, string> = {
   web_search: "Recherche web en cours...",
+  web_fetch: "Lecture de la page...",
   orchestrate: "Lancement de mission...",
   list_missions: "Consultation des missions...",
   list_approvals: "Vérification des validations...",
@@ -174,6 +177,19 @@ async function executeTool(name: string, input: any): Promise<string> {
         return data.results.map((r: {title: string; url: string; snippet: string}, i: number) =>
           `${i+1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`
         ).join("\n\n")
+      }
+      case "web_fetch": {
+        const res = await fetch(`${BACKEND}/api/web-fetch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: input.url }),
+          signal: AbortSignal.timeout(20000),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        // Truncate for Claude context
+        const content = data.content?.slice(0, 15000) || "Page vide"
+        return `Contenu de ${data.url} (${data.contentType}):\n\n${content}`
       }
       default:
         return JSON.stringify({ error: `Outil inconnu : ${name}` })

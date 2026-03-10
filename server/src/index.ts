@@ -207,38 +207,73 @@ app.post("/api/self-modify", (req, res) => {
 })
 
 // === WEB SEARCH ===
+// Brave Search API (free tier: 2000 req/month) — reliable, no CAPTCHA
+async function searchBrave(query: string): Promise<{ title: string; url: string; snippet: string }[]> {
+  const apiKey = process.env.BRAVE_SEARCH_API_KEY
+  if (!apiKey) return []
+  const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=8&search_lang=fr`
+  const response = await fetch(url, {
+    headers: { "Accept": "application/json", "X-Subscription-Token": apiKey },
+    signal: AbortSignal.timeout(10000),
+  })
+  if (!response.ok) return []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: any = await response.json()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data.web?.results || []).slice(0, 8).map((r: any) => ({
+    title: r.title || "",
+    url: r.url || "",
+    snippet: (r.description || "").replace(/<[^>]+>/g, ""),
+  }))
+}
+
+// Google Custom Search API fallback
+async function searchGoogle(query: string): Promise<{ title: string; url: string; snippet: string }[]> {
+  const apiKey = process.env.GOOGLE_SEARCH_API_KEY
+  const cx = process.env.GOOGLE_SEARCH_CX
+  if (!apiKey || !cx) return []
+  const url = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(query)}&key=${apiKey}&cx=${cx}&num=8&lr=lang_fr`
+  const response = await fetch(url, { signal: AbortSignal.timeout(10000) })
+  if (!response.ok) return []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: any = await response.json()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data.items || []).slice(0, 8).map((r: any) => ({
+    title: r.title || "",
+    url: r.link || "",
+    snippet: r.snippet || "",
+  }))
+}
+
+// Serper.dev — Google Search API (2500 free searches to start)
+async function searchSerper(query: string): Promise<{ title: string; url: string; snippet: string }[]> {
+  const apiKey = process.env.SERPER_API_KEY
+  if (!apiKey) return []
+  const response = await fetch("https://google.serper.dev/search", {
+    method: "POST",
+    headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({ q: query, gl: "fr", hl: "fr", num: 8 }),
+    signal: AbortSignal.timeout(10000),
+  })
+  if (!response.ok) return []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: any = await response.json()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data.organic || []).slice(0, 8).map((r: any) => ({
+    title: r.title || "",
+    url: r.link || "",
+    snippet: r.snippet || "",
+  }))
+}
+
 app.get("/api/web-search", async (req, res) => {
   const query = String(req.query.q || "").trim()
   if (!query) return res.status(400).json({ error: "q required" })
   try {
-    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`
-    const response = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; Maestro/1.0)" },
-      signal: AbortSignal.timeout(10000),
-    })
-    const html = await response.text()
-    const results: { title: string; url: string; snippet: string }[] = []
-    const linkRe = /<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g
-    const snippetRe = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g
-    const snippets: string[] = []
-    let sm: RegExpExecArray | null
-    while ((sm = snippetRe.exec(html)) !== null) {
-      snippets.push(sm[1].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#x27;/g, "'").trim())
-    }
-    let m: RegExpExecArray | null
-    let i = 0
-    while ((m = linkRe.exec(html)) !== null && results.length < 8) {
-      const rawUrl = m[1]
-      const title = m[2].replace(/<[^>]+>/g, "").trim()
-      if (!rawUrl || rawUrl.startsWith("//duckduckgo") || rawUrl.startsWith("/")) { i++; continue }
-      let cleanUrl = rawUrl
-      try {
-        const u = new URL(rawUrl)
-        cleanUrl = u.searchParams.get("uddg") || u.searchParams.get("u") || rawUrl
-      } catch { /* keep raw */ }
-      results.push({ title, url: cleanUrl, snippet: snippets[i] || "" })
-      i++
-    }
+    // Try providers in order: Brave → Google → SearXNG
+    let results = await searchBrave(query)
+    if (results.length === 0) results = await searchGoogle(query)
+    if (results.length === 0) results = await searchSerper(query)
     res.json({ query, results })
   } catch (e) {
     res.status(500).json({ error: `Web search failed: ${e}` })

@@ -87,6 +87,8 @@ CAPACITÉS :
 - Voir les validations en attente (outil : list_approvals)
 - Approuver ou refuser une validation (outil : resolve_approval)
 - Consulter l'activité récente (outil : get_activity)
+- Rechercher sur le web en temps réel (outil : web_search) — prix, actus, horaires, infos
+- Lire le contenu complet d'une page web (outil : web_fetch) — articles, pages produit, docs
 - Générer des artifacts interactifs
 - Modifier ton propre code (outil : self_modify) — POUVOIR ULTIME
 - Seuil autonomie : < 50€ auto, > 50€ validation
@@ -184,13 +186,24 @@ const TOOLS = [
   },
   {
     name: "web_search",
-    description: "Recherche sur le web. Utilise cet outil quand tu as besoin d'informations actuelles, de prix, de news, ou quand tu ne connais pas la réponse. Aussi utile pour vérifier des faits récents.",
+    description: "Recherche sur le web en temps réel. Utilise cet outil pour toute question nécessitant des informations récentes, des prix, des horaires, de l'actualité, etc.",
     input_schema: {
       type: "object",
       properties: {
         query: { type: "string", description: "La requête de recherche" },
       },
       required: ["query"],
+    },
+  },
+  {
+    name: "web_fetch",
+    description: "Lit le contenu complet d'une page web à partir de son URL. Utilise cet outil pour lire un article, une page produit, un document en ligne, etc.",
+    input_schema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "L'URL complète de la page à lire" },
+      },
+      required: ["url"],
     },
   },
 ]
@@ -241,39 +254,26 @@ async function executeTool(name: string, input: any): Promise<string> {
         return JSON.stringify(await res.json())
       }
       case "web_search": {
-        // Use DuckDuckGo lite + Google fallback
-        const q = encodeURIComponent(input.query)
-        try {
-          // Try Google first (more reliable)
-          const res = await fetch(`https://www.google.com/search?q=${q}&num=5&hl=fr`, {
-            headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
-            signal: AbortSignal.timeout(10000),
-          })
-          const html = await res.text()
-          // Extract results from Google HTML
-          const results: string[] = []
-          const regex = /<a href="\/url\?q=([^&"]+)[^"]*"[^>]*>([\s\S]*?)<\/a>/g
-          let match
-          while ((match = regex.exec(html)) !== null && results.length < 5) {
-            const url = decodeURIComponent(match[1])
-            if (url.startsWith("http") && !url.includes("google.com") && !url.includes("youtube.com/results")) {
-              const title = match[2].replace(/<[^>]+>/g, "").trim()
-              if (title) results.push(`${title}\n${url}`)
-            }
-          }
-          // Also try to extract snippets
-          const snippets: string[] = []
-          const snipRegex = /<span class="st">([\s\S]*?)<\/span>/g
-          while ((match = snipRegex.exec(html)) !== null && snippets.length < 5) {
-            snippets.push(match[1].replace(/<[^>]+>/g, "").trim())
-          }
-          if (results.length > 0) {
-            return `Résultats pour "${input.query}":\n\n${results.map((r, i) => `${i + 1}. ${r}${snippets[i] ? "\n   " + snippets[i] : ""}`).join("\n\n")}`
-          }
-          return `Recherche "${input.query}" — pas de résultats exploitables. Essaie de reformuler.`
-        } catch {
-          return `Erreur de recherche pour "${input.query}". Le service est temporairement indisponible.`
-        }
+        const res = await fetch(`${BACKEND}/api/web-search?q=${encodeURIComponent(input.query)}`, {
+          signal: AbortSignal.timeout(10000),
+        })
+        const data = await res.json()
+        if (!data.results?.length) return "Aucun résultat trouvé."
+        return data.results.map((r: { title: string; url: string; snippet: string }, i: number) =>
+          `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`
+        ).join("\n\n")
+      }
+      case "web_fetch": {
+        const res = await fetch(`${BACKEND}/api/web-fetch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: input.url }),
+          signal: AbortSignal.timeout(20000),
+        })
+        const data = await res.json()
+        if (data.error) return `Erreur: ${data.error}`
+        const content = data.content?.slice(0, 30000) || "Page vide"
+        return `Contenu de ${data.url} (${data.contentType}):\n\n${content}`
       }
       default:
         return JSON.stringify({ error: `Outil inconnu : ${name}` })
