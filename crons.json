@@ -5,9 +5,9 @@
     "schedule": "*/5 * * * *",
     "description": "Vérifie que Maestro est en vie, log l'état",
     "active": true,
-    "lastRun": "2026-03-10T18:30:00.147Z",
+    "lastRun": "2026-03-10T19:00:00.863Z",
     "lastStatus": "ok",
-    "lastOutput": "{\"timestamp\":\"2026-03-10T18:30:00.146Z\",\"alive\":true,\"checks\":{\"serverRunning\":true,\"apiResponding\":true,\"missionsActive\":0,\"lastActivity\":\"aucune\",\"goalsProgress\":{\"total\":43,\"done\":24,\"percent\":56},"
+    "lastOutput": "{\"timestamp\":\"2026-03-10T19:00:00.862Z\",\"alive\":true,\"checks\":{\"serverRunning\":true,\"apiResponding\":true,\"missionsActive\":0,\"lastActivity\":\"aucune\",\"goalsProgress\":{\"total\":43,\"done\":24,\"percent\":56},"
   },
   {
     "id": "selfheal",
@@ -15,7 +15,7 @@
     "schedule": "*/30 * * * *",
     "description": "Auto-réparation et vérification des services",
     "active": true,
-    "lastRun": "2026-03-10T18:00:00.585Z",
+    "lastRun": "2026-03-10T18:30:00.274Z",
     "lastStatus": "ok"
   },
   {
@@ -33,7 +33,7 @@
     "schedule": "*/30 * * * *",
     "description": "Vérifie les missions email actives",
     "active": true,
-    "lastRun": "2026-03-10T18:00:00.586Z",
+    "lastRun": "2026-03-10T18:30:00.274Z",
     "lastStatus": "ok",
     "lastOutput": "0 missions email actives"
   },
