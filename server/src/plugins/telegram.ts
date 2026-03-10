@@ -82,8 +82,13 @@ Quand Omar donne un ordre d'action, UTILISE TOUJOURS l'outil correspondant. Ne s
 const TOOLS: Anthropic.Tool[] = [
   {
     name: "web_search",
-    description: "Recherche sur le web via DuckDuckGo. Retourne les titres, URLs et extraits des résultats.",
+    description: "Recherche sur le web. Retourne les titres, URLs et extraits des résultats. Utilise cet outil pour toute question nécessitant des infos récentes, des prix, des horaires, etc.",
     input_schema: { type: "object" as const, properties: { query: { type: "string", description: "La requête de recherche" } }, required: ["query"] },
+  },
+  {
+    name: "web_fetch",
+    description: "Lit le contenu complet d'une page web à partir de son URL. Utilise cet outil pour lire un article, une page produit, un document en ligne, etc.",
+    input_schema: { type: "object" as const, properties: { url: { type: "string", description: "L'URL complète de la page à lire" } }, required: ["url"] },
   },
   {
     name: "orchestrate",
@@ -342,23 +347,58 @@ export const telegramPlugin: Plugin = {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const contentBlocks: any[] = []
 
-        if (msg.photo) {
-          const photo = msg.photo[msg.photo.length - 1]
-          const fileInfo = await bot.getFile(photo.file_id)
-          const fileUrl = `https://api.telegram.org/file/bot${token}/${fileInfo.file_path}`
-          const base64 = await downloadFileAsBase64(fileUrl)
-          contentBlocks.push({
-            type: "image",
-            source: { type: "base64", media_type: "image/jpeg", data: base64 },
-          })
+        // Resolve image file_id from any message type — never refuse an image
+        let imageFileId: string | undefined
+        let imageMime = "image/jpeg"
+
+        if (msg.photo && msg.photo.length > 0) {
+          // Photo message — take highest resolution
+          imageFileId = msg.photo[msg.photo.length - 1].file_id
+        } else if (msg.sticker) {
+          // Sticker — treat as image (webp/png)
+          imageFileId = msg.sticker.file_id
+          imageMime = msg.sticker.is_animated ? "image/png" : "image/webp"
+        } else if (msg.document) {
+          // Document — accept if it looks like an image or PDF
+          const mime = msg.document.mime_type || ""
+          if (mime.startsWith("image/") || mime === "application/pdf") {
+            imageFileId = msg.document.file_id
+            if (mime.startsWith("image/")) imageMime = mime
+          }
+        } else if (msg.video || msg.video_note || msg.animation) {
+          // Video/GIF — grab the thumbnail as an image
+          const media = msg.video || msg.video_note || msg.animation
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const thumb = (media as any)?.thumb ?? (media as any)?.thumbnail
+          if (thumb?.file_id) {
+            imageFileId = thumb.file_id
+            imageMime = "image/jpeg"
+          }
+        }
+
+        if (imageFileId) {
+          try {
+            const fileInfo = await bot.getFile(imageFileId)
+            const fileUrl = `https://api.telegram.org/file/bot${token}/${fileInfo.file_path}`
+            const base64 = await downloadFileAsBase64(fileUrl)
+            // For PDFs sent as documents, use document mime
+            const finalMime = msg.document?.mime_type === "application/pdf" ? "application/pdf" : imageMime
+            contentBlocks.push({
+              type: "image",
+              source: { type: "base64", media_type: finalMime, data: base64 },
+            })
+          } catch (dlErr) {
+            console.error("[TELEGRAM] Erreur download media:", dlErr)
+            contentBlocks.push({ type: "text", text: "[Image reçue mais impossible à télécharger — je fais de mon mieux avec le contexte]" })
+          }
         }
 
         const text = msg.text || msg.caption || ""
         if (text) contentBlocks.push({ type: "text", text })
 
+        // Never say no — if nothing parseable, still acknowledge
         if (contentBlocks.length === 0) {
-          await bot.sendMessage(chatId, "Je ne sais pas traiter ce type de message.")
-          return
+          contentBlocks.push({ type: "text", text: "[Message multimédia reçu — format non reconnu, mais je reste à l'écoute]" })
         }
 
         await bot.sendChatAction(chatId, "typing")

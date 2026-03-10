@@ -245,6 +245,46 @@ app.get("/api/web-search", async (req, res) => {
   }
 })
 
+// === WEB FETCH ===
+app.post("/api/web-fetch", async (req, res) => {
+  const { url } = req.body
+  if (!url) return res.status(400).json({ error: "url required" })
+  try {
+    const response = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; Maestro/2.0)" },
+      signal: AbortSignal.timeout(15000),
+      redirect: "follow",
+    })
+    const contentType = response.headers.get("content-type") || ""
+    if (contentType.includes("application/json")) {
+      const json = await response.json()
+      res.json({ url, contentType: "json", content: JSON.stringify(json, null, 2).slice(0, 50000) })
+    } else {
+      const html = await response.text()
+      // Strip tags for a readable text extraction
+      const text = html
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<nav[\s\S]*?<\/nav>/gi, "")
+        .replace(/<footer[\s\S]*?<\/footer>/gi, "")
+        .replace(/<header[\s\S]*?<\/header>/gi, "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&#x27;/g, "'")
+        .replace(/&quot;/g, '"')
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 50000)
+      res.json({ url, contentType: contentType.split(";")[0], content: text })
+    }
+  } catch (e) {
+    res.status(500).json({ error: `Fetch failed: ${e}` })
+  }
+})
+
 // === FILES API ===
 const ALLOWED_FILES: Record<string, string> = {
   "claude": "/root/maestro/CLAUDE.md",
